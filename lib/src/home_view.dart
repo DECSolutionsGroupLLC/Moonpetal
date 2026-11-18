@@ -26,12 +26,20 @@ class HomeView extends StatelessWidget {
     required this.symptomNames,
     required this.todaySymptoms,
     required this.symptomDays,
+    required this.todayNote,
+    required this.noteDays,
+    required this.tagNames,
+    required this.todayTags,
+    required this.tagDays,
     required this.onLogPeriodDay,
     required this.onSetPeriodStart,
     required this.onSetFlowLevel,
     required this.onAddCustomSymptom,
     required this.onToggleSymptom,
     required this.onSetSymptomValue,
+    required this.onAddTagName,
+    required this.onToggleTag,
+    required this.onSaveNote,
     required this.onEndPeriod,
   });
 
@@ -59,6 +67,21 @@ class HomeView extends StatelessWidget {
   /// Every day with a logged symptom, oldest first.
   final List<LogEntry> symptomDays;
 
+  /// The free-text note saved for today, if there is one.
+  final String? todayNote;
+
+  /// Every day with a saved note, oldest first.
+  final List<LogEntry> noteDays;
+
+  /// Tag labels the user has created, available to attach on any day.
+  final List<String> tagNames;
+
+  /// Tags attached to today, so chips can show their saved state.
+  final List<String> todayTags;
+
+  /// Every day with an attached tag, oldest first.
+  final List<LogEntry> tagDays;
+
   final VoidCallback onLogPeriodDay;
 
   /// Records a user-chosen day as the start of a period.
@@ -76,6 +99,15 @@ class HomeView extends StatelessWidget {
   /// Sets an optional severity or value on a logged symptom; null clears it.
   final void Function(DateTime day, String name, String? value)
   onSetSymptomValue;
+
+  /// Defines a tag label for reuse on any day.
+  final ValueChanged<String> onAddTagName;
+
+  /// Attaches a tag to today, or removes it when it is already attached.
+  final ValueChanged<String> onToggleTag;
+
+  /// Saves a free-text note for today; null or blank clears it.
+  final ValueChanged<String?> onSaveNote;
 
   /// Records the day a period ended.
   final void Function(Period period, DateTime end) onEndPeriod;
@@ -168,7 +200,46 @@ class HomeView extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 8),
-              _CustomSymptomField(onAdd: onAddCustomSymptom),
+              _NameField(
+                fieldKey: const Key('customSymptomField'),
+                buttonKey: const Key('addSymptomButton'),
+                label: 'New symptom name',
+                buttonLabel: 'Add symptom',
+                onAdd: onAddCustomSymptom,
+              ),
+              const SizedBox(height: 24),
+              Text('Tags', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 8),
+              Text(
+                'Tags are labels for your own organisation, not symptoms.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final name in tagNames)
+                    FilterChip(
+                      label: Text(name),
+                      selected: todayTags.contains(name),
+                      onSelected: (_) => onToggleTag(name),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              _NameField(
+                fieldKey: const Key('customTagField'),
+                buttonKey: const Key('addTagButton'),
+                label: 'New tag name',
+                buttonLabel: 'Add tag',
+                onAdd: onAddTagName,
+              ),
+              const SizedBox(height: 24),
+              Text('Note', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 8),
+              _NoteField(initialNote: todayNote, onSave: onSaveNote),
               if (hasLogEntries) ...[
                 const SizedBox(height: 32),
                 Text('Periods', style: theme.textTheme.titleMedium),
@@ -251,6 +322,40 @@ class HomeView extends StatelessWidget {
                           ),
                         ),
                       ),
+                    ),
+                  ),
+                ],
+                if (tagDays.isNotEmpty) ...[
+                  const SizedBox(height: 24),
+                  Text('Logged tags', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  ...tagDays.expand(
+                    (entry) => entry.tags.map(
+                      (tag) => ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(
+                          Icons.label,
+                          color: MoonpetalColors.deepPink,
+                        ),
+                        title: Text(tag),
+                        subtitle: Text(formatLongDate(entry.date)),
+                      ),
+                    ),
+                  ),
+                ],
+                if (noteDays.isNotEmpty) ...[
+                  const SizedBox(height: 24),
+                  Text('Notes', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  ...noteDays.map(
+                    (entry) => ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(
+                        Icons.note,
+                        color: MoonpetalColors.deepPink,
+                      ),
+                      title: Text(entry.note ?? ''),
+                      subtitle: Text(formatLongDate(entry.date)),
                     ),
                   ),
                 ],
@@ -469,16 +574,87 @@ class _SymptomDetailDialogState extends State<_SymptomDetailDialog> {
   }
 }
 
-class _CustomSymptomField extends StatefulWidget {
-  const _CustomSymptomField({required this.onAdd});
+class _NoteField extends StatefulWidget {
+  const _NoteField({required this.initialNote, required this.onSave});
 
+  final String? initialNote;
+  final ValueChanged<String?> onSave;
+
+  @override
+  State<_NoteField> createState() => _NoteFieldState();
+}
+
+class _NoteFieldState extends State<_NoteField> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initialNote ?? '',
+  );
+
+  @override
+  void didUpdateWidget(covariant _NoteField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialNote != oldWidget.initialNote &&
+        widget.initialNote != _controller.text) {
+      _controller.text = widget.initialNote ?? '';
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final text = _controller.text;
+    widget.onSave(text.trim().isEmpty ? null : text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          key: const Key('noteField'),
+          controller: _controller,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'Free-text note',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 8),
+        FilledButton.tonal(
+          key: const Key('saveNoteButton'),
+          onPressed: _save,
+          child: const Text('Save note'),
+        ),
+      ],
+    );
+  }
+}
+
+/// A text field plus button for defining a reusable symptom or tag name.
+class _NameField extends StatefulWidget {
+  const _NameField({
+    required this.fieldKey,
+    required this.buttonKey,
+    required this.label,
+    required this.buttonLabel,
+    required this.onAdd,
+  });
+
+  final Key fieldKey;
+  final Key buttonKey;
+  final String label;
+  final String buttonLabel;
   final ValueChanged<String> onAdd;
 
   @override
-  State<_CustomSymptomField> createState() => _CustomSymptomFieldState();
+  State<_NameField> createState() => _NameFieldState();
 }
 
-class _CustomSymptomFieldState extends State<_CustomSymptomField> {
+class _NameFieldState extends State<_NameField> {
   final _controller = TextEditingController();
 
   @override
@@ -500,20 +676,20 @@ class _CustomSymptomFieldState extends State<_CustomSymptomField> {
       children: [
         Expanded(
           child: TextField(
-            key: const Key('customSymptomField'),
+            key: widget.fieldKey,
             controller: _controller,
-            decoration: const InputDecoration(
-              labelText: 'New symptom name',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: widget.label,
+              border: const OutlineInputBorder(),
             ),
             onSubmitted: (_) => _add(),
           ),
         ),
         const SizedBox(width: 8),
         FilledButton.tonal(
-          key: const Key('addSymptomButton'),
+          key: widget.buttonKey,
           onPressed: _add,
-          child: const Text('Add symptom'),
+          child: Text(widget.buttonLabel),
         ),
       ],
     );

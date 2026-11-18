@@ -8,6 +8,8 @@ const String _flowLevelKey = 'flowLevel';
 const String symptomsKey = 'symptoms';
 const String _symptomNameKey = 'name';
 const String _symptomValueKey = 'value';
+const String noteKey = 'note';
+const String tagsKey = 'tags';
 
 /// The small set of common symptoms offered on the daily screen from the
 /// start. User-defined names are stored alongside these in the document.
@@ -66,6 +68,8 @@ class LogEntry {
     required this.isPeriodDay,
     this.flowLevel,
     this.symptoms = const <LoggedSymptom>[],
+    this.note,
+    this.tags = const <String>[],
   });
 
   final DateTime date;
@@ -74,6 +78,13 @@ class LogEntry {
 
   /// Symptoms logged on this day, each with an optional severity or value.
   final List<LoggedSymptom> symptoms;
+
+  /// The free-text note written on this day, if there is one.
+  final String? note;
+
+  /// Free-form labels attached to this day for the user's own organisation.
+  /// These are never symptom values.
+  final List<String> tags;
 
   String get dayKey => _dayFormat.format(date);
 
@@ -87,6 +98,9 @@ class LogEntry {
             .map(LoggedSymptom.fromJson)
             .toList() ??
         const <LoggedSymptom>[],
+    note: json[noteKey] as String?,
+    tags: (json[tagsKey] as List?)?.whereType<String>().toList() ??
+        const <String>[],
   );
 }
 
@@ -281,4 +295,91 @@ extension LogEntryDocument on Map<String, Object?> {
       ..removeWhere((symptom) => _isSymptomNamed(symptom, name));
     return _withDayEntry(day, fields: <String, Object?>{symptomsKey: symptoms});
   }
+
+  /// The free-text note saved on [day], if there is one.
+  String? noteFor(DateTime day) => logEntries.forDay(day)?.note;
+
+  /// Every day with a saved note, oldest first.
+  List<LogEntry> get noteDays =>
+      logEntries.where((entry) => entry.note != null).toList();
+
+  /// Returns a new document with [note] saved on [day].
+  ///
+  /// Blank notes clear the field instead of storing whitespace. Passing null
+  /// clears it too; clearing a day with no entry records nothing.
+  Map<String, Object?> withNote(DateTime day, String? note) {
+    final trimmed = note?.trim();
+    return _withDayEntry(
+      day,
+      fields: {if (trimmed != null && trimmed.isNotEmpty) noteKey: trimmed},
+      clearKeys: <String>[noteKey],
+    );
+  }
+
+  /// The free-form labels attached to [day], in the order they were added.
+  List<String> tagsFor(DateTime day) =>
+      logEntries.forDay(day)?.tags ?? const <String>[];
+
+  /// Every day with at least one attached tag, oldest first.
+  List<LogEntry> get tagDays =>
+      logEntries.where((entry) => entry.tags.isNotEmpty).toList();
+
+  /// Tag labels the user has created themselves, reusable on any day.
+  List<String> get tagNames {
+    final stored = this[tagNamesKey];
+    if (stored is! List) return const <String>[];
+    return stored.whereType<String>().toList();
+  }
+
+  /// Returns a new document with [name] added to the user's tags.
+  ///
+  /// Names are trimmed; blank names and duplicates are ignored so reusing a
+  /// tag never adds another definition.
+  Map<String, Object?> withTagName(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty || tagNames.contains(trimmed)) return this;
+    return <String, Object?>{
+      ...this,
+      tagNamesKey: <String>[...tagNames, trimmed],
+    };
+  }
+
+  /// The raw stored tags for [day], copied so they can be rewritten without
+  /// dropping other fields on the entry.
+  List<String> _rawTagsFor(DateTime day) {
+    final stored = this[logEntriesKey];
+    if (stored is! List) return <String>[];
+    final entries = <Object?>[...stored];
+    final index = _dayEntryIndex(entries, day);
+    if (index == -1) return <String>[];
+    final tags = (entries[index] as Map<String, Object?>)[tagsKey];
+    if (tags is List) return tags.whereType<String>().toList();
+    return <String>[];
+  }
+
+  /// Returns a new document with [name] attached to [day].
+  Map<String, Object?> withTag(DateTime day, String name) {
+    final tags = _rawTagsFor(day);
+    if (tags.contains(name)) return this;
+    return _withDayEntry(
+      day,
+      fields: <String, Object?>{tagsKey: <String>[...tags, name]},
+    );
+  }
+
+  /// Returns a new document with [name] no longer attached to [day].
+  Map<String, Object?> withoutTag(DateTime day, String name) {
+    final tags = _rawTagsFor(day)..remove(name);
+    return _withDayEntry(
+      day,
+      fields: <String, Object?>{tagsKey: tags},
+    );
+  }
+
+  /// Returns a new document with [name] attached to [day], or removed when it
+  /// is already attached.
+  Map<String, Object?> withToggledTag(DateTime day, String name) =>
+      tagsFor(day).contains(name)
+          ? withoutTag(day, name)
+          : withTag(day, name);
 }

@@ -67,9 +67,22 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
         (document) => document.withLoggedSymptom(day, name, value: value),
       );
 
+  /// Saves a free-text note for today; null or blank clears it.
+  Future<void> _saveNote(String? note) =>
+      _commit((document) => document.withNote(widget.clock.now(), note));
+
   /// Defines a custom symptom name for reuse on any day.
   Future<void> _addCustomSymptom(String name) =>
       _commit((document) => document.withCustomSymptomName(name));
+
+  /// Defines a tag label for reuse on any day.
+  Future<void> _addTagName(String name) =>
+      _commit((document) => document.withTagName(name));
+
+  /// Attaches a tag to today, or removes it when it is already attached.
+  Future<void> _toggleTag(String name) => _commit(
+    (document) => document.withToggledTag(widget.clock.now(), name),
+  );
 
   /// Taps a symptom chip on the daily screen: logs it for today, or removes
   /// it when it is already logged.
@@ -99,12 +112,20 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
                 symptomNames: document.availableSymptomNames,
                 todaySymptoms: document.symptomsFor(widget.clock.now()),
                 symptomDays: document.symptomDays,
+                todayNote: document.noteFor(widget.clock.now()),
+                noteDays: document.noteDays,
+                tagNames: document.tagNames,
+                todayTags: document.tagsFor(widget.clock.now()),
+                tagDays: document.tagDays,
                 onLogPeriodDay: _logPeriodDay,
                 onSetPeriodStart: _recordPeriodDay,
                 onSetFlowLevel: _setFlowLevel,
                 onAddCustomSymptom: _addCustomSymptom,
                 onToggleSymptom: _toggleSymptom,
                 onSetSymptomValue: _setSymptomValue,
+                onAddTagName: _addTagName,
+                onToggleTag: _toggleTag,
+                onSaveNote: _saveNote,
                 onEndPeriod: _endPeriod,
               ),
       ),

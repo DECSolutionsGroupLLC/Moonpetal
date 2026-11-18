@@ -9,6 +9,9 @@ const String logEntriesKey = 'logEntries';
 /// User-defined symptom names, stored once and reused on later days.
 const String symptomNamesKey = 'symptomNames';
 
+/// User-created tag labels, stored once and reused on later days.
+const String tagNamesKey = 'tagNames';
+
 /// Typed access to the document so callers don't repeat its string keys.
 extension AppDocument on Map<String, Object?> {
   /// First run means no log entries, even if Settings have been stored.
