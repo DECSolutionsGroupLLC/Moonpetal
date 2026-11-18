@@ -37,24 +37,29 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
     setState(() => _document = document);
   }
 
-  Future<void> _recordPeriodDay(DateTime day) async {
-    final updated = (_document ?? <String, Object?>{}).withPeriodDay(day);
+  /// Applies a document transform, persists it, then shows the new state.
+  Future<void> _commit(
+    Map<String, Object?> Function(Map<String, Object?> document) update,
+  ) async {
+    final updated = update(_document ?? <String, Object?>{});
     await widget.store.write(updated);
     if (!mounted) return;
     setState(() => _document = updated);
   }
+
+  Future<void> _recordPeriodDay(DateTime day) =>
+      _commit((document) => document.withPeriodDay(day));
 
   Future<void> _logPeriodDay() => _recordPeriodDay(widget.clock.now());
 
-  Future<void> _endPeriod(Period period, DateTime end) async {
-    final updated = (_document ?? <String, Object?>{}).withPeriodEnd(
-      period,
-      end,
-    );
-    await widget.store.write(updated);
-    if (!mounted) return;
-    setState(() => _document = updated);
-  }
+  Future<void> _recordFlowLevel(DateTime day, FlowLevel? level) =>
+      _commit((document) => document.withFlowLevel(day, level));
+
+  Future<void> _setFlowLevel(FlowLevel? level) =>
+      _recordFlowLevel(widget.clock.now(), level);
+
+  Future<void> _endPeriod(Period period, DateTime end) =>
+      _commit((document) => document.withPeriodEnd(period, end));
 
   @override
   Widget build(BuildContext context) {
@@ -71,10 +76,13 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
                 today: widget.clock.now(),
                 hasLogEntries: document.hasLogEntries,
                 periodDays: document.periodDays,
+                flowDays: document.flowDays,
                 periods: document.periods,
                 cycleHistory: document.cycleHistory,
+                todayFlowLevel: document.flowLevelFor(widget.clock.now()),
                 onLogPeriodDay: _logPeriodDay,
                 onSetPeriodStart: _recordPeriodDay,
+                onSetFlowLevel: _setFlowLevel,
                 onEndPeriod: _endPeriod,
               ),
       ),

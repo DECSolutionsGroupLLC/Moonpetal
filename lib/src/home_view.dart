@@ -19,10 +19,13 @@ class HomeView extends StatelessWidget {
     required this.today,
     required this.hasLogEntries,
     required this.periodDays,
+    required this.flowDays,
     required this.periods,
     required this.cycleHistory,
+    required this.todayFlowLevel,
     required this.onLogPeriodDay,
     required this.onSetPeriodStart,
+    required this.onSetFlowLevel,
     required this.onEndPeriod,
   });
 
@@ -32,12 +35,21 @@ class HomeView extends StatelessWidget {
   /// period days, so this is deliberately separate from [periodDays].
   final bool hasLogEntries;
   final List<LogEntry> periodDays;
+
+  /// Every day with a saved Flow level, whether or not it is a period day.
+  final List<LogEntry> flowDays;
   final List<Period> periods;
   final List<CycleRecord> cycleHistory;
+
+  /// The Flow level saved for today, if the user has recorded one.
+  final FlowLevel? todayFlowLevel;
   final VoidCallback onLogPeriodDay;
 
   /// Records a user-chosen day as the start of a period.
   final ValueChanged<DateTime> onSetPeriodStart;
+
+  /// Records a Flow level for today; null clears it.
+  final ValueChanged<FlowLevel?> onSetFlowLevel;
 
   /// Records the day a period ended.
   final void Function(Period period, DateTime end) onEndPeriod;
@@ -46,6 +58,7 @@ class HomeView extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isTodayLogged = periodDays.containsDay(today);
+    final flowLevel = todayFlowLevel;
 
     return Scaffold(
       body: SafeArea(
@@ -82,6 +95,30 @@ class HomeView extends StatelessWidget {
                 icon: const Icon(Icons.event),
                 label: const Text('Set a specific start date'),
               ),
+              const SizedBox(height: 24),
+              Text('Flow level', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final level in FlowLevel.values)
+                    FilterChip(
+                      label: Text(level.label),
+                      selected: level == flowLevel,
+                      onSelected: (selected) =>
+                          onSetFlowLevel(selected ? level : null),
+                    ),
+                ],
+              ),
+              if (flowLevel != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Saved flow level: ${flowLevel.label}',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
               if (hasLogEntries) ...[
                 const SizedBox(height: 32),
                 Text('Periods', style: theme.textTheme.titleMedium),
@@ -120,6 +157,22 @@ class HomeView extends StatelessWidget {
                     subtitle: const Text('Period day'),
                   ),
                 ),
+                if (flowDays.isNotEmpty) ...[
+                  const SizedBox(height: 24),
+                  Text('Flow levels', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  ...flowDays.map(
+                    (entry) => ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(
+                        Icons.water_drop,
+                        color: MoonpetalColors.deepPink,
+                      ),
+                      title: Text(formatLongDate(entry.date)),
+                      subtitle: Text('${entry.flowLevel!.label} flow'),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 24),
                 Text(
                   'Your entries are stored on this device.',
