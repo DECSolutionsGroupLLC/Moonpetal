@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 abstract final class MoonpetalColors {
   static const deepPink = Color(0xFF880E4F);
   static const softPink = Color(0xFFFCE4EC);
+  static const viewportBackdrop = Color(0xFFF3E0E8);
 }
 
 /// The app-wide pink theme. Main body text is at least 16 logical pixels.

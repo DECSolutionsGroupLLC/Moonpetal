@@ -19,16 +19,13 @@ class HomeView extends StatelessWidget {
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(32),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 480),
-              child: hasLogEntries
-                  ? Text(
-                      'Your entries are stored on this device.',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodyLarge,
-                    )
-                  : _FirstRunEmptyState(today: today),
-            ),
+            child: hasLogEntries
+                ? Text(
+                    'Your entries are stored on this device.',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyLarge,
+                  )
+                : _FirstRunEmptyState(today: today),
           ),
         ),
       ),
