@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'cycles.dart';
+import 'estimate.dart';
 import 'log_entries.dart';
 import 'periods.dart';
 import 'theme.dart';
@@ -26,6 +27,7 @@ class HomeView extends StatelessWidget {
     required this.flowDays,
     required this.periods,
     required this.cycleHistory,
+    required this.nextPeriodEstimate,
     required this.todayFlowLevel,
     required this.symptomNames,
     required this.todaySymptoms,
@@ -66,6 +68,9 @@ class HomeView extends StatelessWidget {
   final List<LogEntry> flowDays;
   final List<Period> periods;
   final List<CycleRecord> cycleHistory;
+
+  /// The next-period Estimate, recomputed from the current cycle history.
+  final NextPeriodEstimate? nextPeriodEstimate;
 
   /// The Flow level saved for today, if the user has recorded one.
   final FlowLevel? todayFlowLevel;
@@ -173,6 +178,10 @@ class HomeView extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
+              ],
+              if (nextPeriodEstimate != null) ...[
+                _NextPeriodEstimateCard(estimate: nextPeriodEstimate!),
+                const SizedBox(height: 8),
               ],
               FilledButton.icon(
                 onPressed: isTodayLogged ? null : onLogPeriodDay,
@@ -667,6 +676,74 @@ class _PeriodCard extends StatelessWidget {
                 child: const Text('Mark as ended'),
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The next-period Estimate, shown as a date inside a visible range rather
+/// than as a single promised day.
+class _NextPeriodEstimateCard extends StatelessWidget {
+  const _NextPeriodEstimateCard({required this.estimate});
+
+  final NextPeriodEstimate estimate;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  'Next period Estimate',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: MoonpetalColors.deepPink,
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: MoonpetalColors.softPink,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'Estimate',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: MoonpetalColors.deepPink,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text('Around ${formatLongDate(estimate.date)}'),
+            Text(
+              'Between ${formatLongDate(estimate.rangeStart)} and '
+              '${formatLongDate(estimate.rangeEnd)}',
+            ),
+            const SizedBox(height: 4),
+            Text('This window spans about ${estimate.windowDays} days.'),
+            const SizedBox(height: 8),
+            Text(
+              estimate.explanation,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
           ],
         ),
       ),

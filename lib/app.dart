@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'src/clock.dart';
 import 'src/cycles.dart';
+import 'src/estimate.dart';
 import 'src/home_view.dart';
 import 'src/log_entries.dart';
 import 'src/periods.dart';
@@ -157,6 +158,10 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
                 flowDays: document.flowDays,
                 periods: document.periods,
                 cycleHistory: document.cycleHistory,
+                nextPeriodEstimate: estimateNextPeriod(
+                  document.cycleHistory,
+                  today: widget.clock.now(),
+                ),
                 todayFlowLevel: document.flowLevelFor(widget.clock.now()),
                 symptomNames: document.availableSymptomNames,
                 todaySymptoms: document.symptomsFor(widget.clock.now()),
