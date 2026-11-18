@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:moonpetal/src/log_entries.dart';
 import 'package:moonpetal/src/storage.dart';
 
 void main() {
@@ -43,5 +44,20 @@ void main() {
     expect(contents, contains('\n  '));
     final decoded = jsonDecode(contents) as Map<String, dynamic>;
     expect(decoded['settings']['theme'], 'pink');
+  });
+
+  test('a period day persists through a fresh store reading the saved JSON',
+      () async {
+    final day = DateTime(2026, 11, 18);
+    final store = JsonFileAppStore(documentsDirectory: () async => directory);
+    await store.write(<String, Object?>{}.withPeriodDay(day));
+
+    final reopened = JsonFileAppStore(
+      documentsDirectory: () async => directory,
+    );
+    final document = await reopened.read();
+
+    expect(document.periodDays, hasLength(1));
+    expect(document.periodDays.containsDay(day), isTrue);
   });
 }

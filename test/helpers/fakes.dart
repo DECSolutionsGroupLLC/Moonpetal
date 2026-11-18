@@ -25,3 +25,22 @@ class InMemoryAppStore implements AppStore {
     _document = Map<String, Object?>.from(document);
   }
 }
+
+/// Two stores sharing one backing map model two app launches against the same
+/// on-device data, without doing real file I/O inside a widget test.
+class SharedInMemoryAppStore implements AppStore {
+  SharedInMemoryAppStore(this.backing);
+
+  final Map<String, Object?> backing;
+
+  @override
+  Future<Map<String, Object?>> read() async =>
+      Map<String, Object?>.unmodifiable(backing);
+
+  @override
+  Future<void> write(Map<String, Object?> document) async {
+    backing
+      ..clear()
+      ..addAll(document);
+  }
+}

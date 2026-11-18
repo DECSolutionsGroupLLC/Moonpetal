@@ -1,31 +1,81 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
+import 'log_entries.dart';
 import 'theme.dart';
 
-/// The single screen for this slice; later tickets add logging above it.
+/// The daily screen: log today in one tap and review logged period days.
 class HomeView extends StatelessWidget {
-  const HomeView({super.key, required this.today, required this.hasLogEntries});
+  const HomeView({
+    super.key,
+    required this.today,
+    required this.hasLogEntries,
+    required this.periodDays,
+    required this.onLogPeriodDay,
+  });
 
   final DateTime today;
+
+  /// First run means no log entries at all, including entries that are not
+  /// period days, so this is deliberately separate from [periodDays].
   final bool hasLogEntries;
+  final List<LogEntry> periodDays;
+  final VoidCallback onLogPeriodDay;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isTodayLogged = periodDays.containsDay(today);
 
     return Scaffold(
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(32),
-            child: hasLogEntries
-                ? Text(
-                    'Your entries are stored on this device.',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyLarge,
-                  )
-                : _FirstRunEmptyState(today: today),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (!hasLogEntries) ...[
+                _FirstRunEmptyState(today: today),
+                const SizedBox(height: 24),
+              ],
+              if (hasLogEntries) ...[
+                Text(
+                  'Today, ${formatLongDate(today)}',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+              FilledButton.icon(
+                onPressed: isTodayLogged ? null : onLogPeriodDay,
+                icon: Icon(isTodayLogged ? Icons.check : Icons.add),
+                label: Text(
+                  isTodayLogged ? 'Today is logged' : 'Log today as a period day',
+                ),
+              ),
+              if (hasLogEntries) ...[
+                const SizedBox(height: 32),
+                Text('Period days', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 8),
+                ...periodDays.map(
+                  (entry) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(
+                      Icons.local_florist,
+                      color: MoonpetalColors.deepPink,
+                    ),
+                    title: Text(formatLongDate(entry.date)),
+                    subtitle: const Text('Period day'),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'Your entries are stored on this device.',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ],
+            ],
           ),
         ),
       ),
@@ -73,7 +123,7 @@ class _FirstRunEmptyState extends StatelessWidget {
         ),
         const SizedBox(height: 20),
         Text(
-          'Today, ${DateFormat('EEEE d MMMM y').format(today)}',
+          'Today, ${formatLongDate(today)}',
           textAlign: TextAlign.center,
           style: theme.textTheme.bodyMedium?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
