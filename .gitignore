@@ -15,11 +15,13 @@ android/build/*
 
 # Scratch and documentation folders
 scratch/
+.scratch/
 docs/
 
 # Documentation files
 AGENTS.md
 GLOSSARY.md
+GLOSSARY-MAP.md
 
 # Lock file
 skills-lock.json
