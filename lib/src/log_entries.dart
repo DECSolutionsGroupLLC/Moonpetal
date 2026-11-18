@@ -5,6 +5,37 @@ import 'storage.dart';
 const String _dateKey = 'date';
 const String _periodDayKey = 'periodDay';
 const String _flowLevelKey = 'flowLevel';
+const String symptomsKey = 'symptoms';
+const String _symptomNameKey = 'name';
+const String _symptomValueKey = 'value';
+
+/// The small set of common symptoms offered on the daily screen from the
+/// start. User-defined names are stored alongside these in the document.
+const List<String> seededSymptomNames = <String>[
+  'Cramps',
+  'Mood',
+  'Energy',
+  'Headaches',
+  'Sleep',
+];
+
+/// A symptom logged on a day, with an optional severity or value.
+class LoggedSymptom {
+  const LoggedSymptom({required this.name, this.value});
+
+  final String name;
+  final String? value;
+
+  factory LoggedSymptom.fromJson(Map<String, Object?> json) => LoggedSymptom(
+    name: json[_symptomNameKey] as String,
+    value: json[_symptomValueKey] as String?,
+  );
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    _symptomNameKey: name,
+    if (value != null) _symptomValueKey: value,
+  };
+}
 
 final DateFormat _dayFormat = DateFormat('yyyy-MM-dd');
 final DateFormat _longDateFormat = DateFormat('EEEE d MMMM y');
@@ -34,11 +65,15 @@ class LogEntry {
     required this.date,
     required this.isPeriodDay,
     this.flowLevel,
+    this.symptoms = const <LoggedSymptom>[],
   });
 
   final DateTime date;
   final bool isPeriodDay;
   final FlowLevel? flowLevel;
+
+  /// Symptoms logged on this day, each with an optional severity or value.
+  final List<LoggedSymptom> symptoms;
 
   String get dayKey => _dayFormat.format(date);
 
@@ -46,6 +81,12 @@ class LogEntry {
     date: DateTime.parse(json[_dateKey] as String),
     isPeriodDay: json[_periodDayKey] == true,
     flowLevel: FlowLevel.values.asNameMap()[json[_flowLevelKey]],
+    symptoms:
+        (json[symptomsKey] as List?)
+            ?.whereType<Map<String, Object?>>()
+            .map(LoggedSymptom.fromJson)
+            .toList() ??
+        const <LoggedSymptom>[],
   );
 }
 
@@ -90,6 +131,14 @@ extension LogEntryDocument on Map<String, Object?> {
   List<LogEntry> get flowDays =>
       logEntries.where((entry) => entry.flowLevel != null).toList();
 
+  /// Index of [day]'s entry in a stored [entries] list, or -1.
+  int _dayEntryIndex(List<Object?> entries, DateTime day) {
+    final key = _dayFormat.format(day);
+    return entries.indexWhere(
+      (entry) => entry is Map<String, Object?> && entry[_dateKey] == key,
+    );
+  }
+
   /// Returns a new document with [fields] set on [day]'s entry and
   /// [clearKeys] removed from it.
   ///
@@ -105,9 +154,7 @@ extension LogEntryDocument on Map<String, Object?> {
     final stored = this[logEntriesKey];
     final entries = <Object?>[if (stored is List) ...stored];
 
-    final index = entries.indexWhere(
-      (entry) => entry is Map<String, Object?> && entry[_dateKey] == key,
-    );
+    final index = _dayEntryIndex(entries, day);
     if (index == -1) {
       if (fields.isNotEmpty) {
         entries.add(<String, Object?>{_dateKey: key, ...fields});
@@ -141,4 +188,97 @@ extension LogEntryDocument on Map<String, Object?> {
         fields: {if (level != null) _flowLevelKey: level.name},
         clearKeys: <String>[_flowLevelKey],
       );
+
+  /// Symptom names the user has defined themselves.
+  List<String> get customSymptomNames {
+    final stored = this[symptomNamesKey];
+    if (stored is! List) return const <String>[];
+    return stored.whereType<String>().toList();
+  }
+
+  /// Seeded symptoms first, then any custom names the user has created.
+  List<String> get availableSymptomNames => <String>[
+    ...seededSymptomNames,
+    ...customSymptomNames,
+  ];
+
+  /// Returns a new document with [name] added to the user's custom symptoms.
+  ///
+  /// Names are trimmed; blank names and duplicates are ignored so reusing a
+  /// custom symptom never adds another definition.
+  Map<String, Object?> withCustomSymptomName(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty ||
+        seededSymptomNames.contains(trimmed) ||
+        customSymptomNames.contains(trimmed)) {
+      return this;
+    }
+    return <String, Object?>{
+      ...this,
+      symptomNamesKey: <String>[...customSymptomNames, trimmed],
+    };
+  }
+
+  /// Symptoms logged on [day], in the order they were added.
+  List<LoggedSymptom> symptomsFor(DateTime day) =>
+      logEntries.forDay(day)?.symptoms ?? const <LoggedSymptom>[];
+
+  /// Returns a new document with [name] toggled on [day]: logged with no
+  /// value when absent, removed when already logged.
+  Map<String, Object?> withToggledSymptom(DateTime day, String name) =>
+      symptomsFor(day).any((symptom) => symptom.name == name)
+          ? withoutLoggedSymptom(day, name)
+          : withLoggedSymptom(day, name);
+
+  /// Every day with at least one logged symptom, oldest first.
+  List<LogEntry> get symptomDays =>
+      logEntries.where((entry) => entry.symptoms.isNotEmpty).toList();
+
+  /// The raw stored symptom maps for [day], copied so they can be rewritten
+  /// without dropping fields this slice doesn't yet understand.
+  List<Object?> _rawSymptomsFor(DateTime day) {
+    final stored = this[logEntriesKey];
+    if (stored is! List) return <Object?>[];
+    final entries = <Object?>[...stored];
+    final index = _dayEntryIndex(entries, day);
+    if (index == -1) return <Object?>[];
+    final symptoms = (entries[index] as Map<String, Object?>)[symptomsKey];
+    if (symptoms is List) return [...symptoms];
+    return <Object?>[];
+  }
+
+  /// Whether a stored symptom is the one named [name].
+  bool _isSymptomNamed(Object? symptom, String name) =>
+      symptom is Map<String, Object?> && symptom[_symptomNameKey] == name;
+
+  /// Returns a new document with [name] logged on [day] at the optional
+  /// [value]. Logging the same name again updates its value rather than
+  /// duplicating it; all other fields and entries are preserved.
+  Map<String, Object?> withLoggedSymptom(
+    DateTime day,
+    String name, {
+    String? value,
+  }) {
+    final symptoms = _rawSymptomsFor(day);
+    final updated = LoggedSymptom(name: name, value: value).toJson();
+    final index = symptoms.indexWhere(
+      (symptom) => _isSymptomNamed(symptom, name),
+    );
+    if (index == -1) {
+      symptoms.add(updated);
+    } else {
+      final existing = symptoms[index] as Map<String, Object?>;
+      final merged = <String, Object?>{...existing, ...updated};
+      if (value == null) merged.remove(_symptomValueKey);
+      symptoms[index] = merged;
+    }
+    return _withDayEntry(day, fields: <String, Object?>{symptomsKey: symptoms});
+  }
+
+  /// Returns a new document with [name] no longer logged on [day].
+  Map<String, Object?> withoutLoggedSymptom(DateTime day, String name) {
+    final symptoms = _rawSymptomsFor(day)
+      ..removeWhere((symptom) => _isSymptomNamed(symptom, name));
+    return _withDayEntry(day, fields: <String, Object?>{symptomsKey: symptoms});
+  }
 }

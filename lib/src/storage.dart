@@ -6,6 +6,9 @@ import 'package:path_provider/path_provider.dart';
 /// The key under which log entries live in the stored document.
 const String logEntriesKey = 'logEntries';
 
+/// User-defined symptom names, stored once and reused on later days.
+const String symptomNamesKey = 'symptomNames';
+
 /// Typed access to the document so callers don't repeat its string keys.
 extension AppDocument on Map<String, Object?> {
   /// First run means no log entries, even if Settings have been stored.

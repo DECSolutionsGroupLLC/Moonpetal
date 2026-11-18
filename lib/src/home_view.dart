@@ -23,9 +23,15 @@ class HomeView extends StatelessWidget {
     required this.periods,
     required this.cycleHistory,
     required this.todayFlowLevel,
+    required this.symptomNames,
+    required this.todaySymptoms,
+    required this.symptomDays,
     required this.onLogPeriodDay,
     required this.onSetPeriodStart,
     required this.onSetFlowLevel,
+    required this.onAddCustomSymptom,
+    required this.onToggleSymptom,
+    required this.onSetSymptomValue,
     required this.onEndPeriod,
   });
 
@@ -43,6 +49,16 @@ class HomeView extends StatelessWidget {
 
   /// The Flow level saved for today, if the user has recorded one.
   final FlowLevel? todayFlowLevel;
+
+  /// Seeded symptoms plus any custom names the user has created.
+  final List<String> symptomNames;
+
+  /// Symptoms logged for today, so chips can show their saved state.
+  final List<LoggedSymptom> todaySymptoms;
+
+  /// Every day with a logged symptom, oldest first.
+  final List<LogEntry> symptomDays;
+
   final VoidCallback onLogPeriodDay;
 
   /// Records a user-chosen day as the start of a period.
@@ -50,6 +66,16 @@ class HomeView extends StatelessWidget {
 
   /// Records a Flow level for today; null clears it.
   final ValueChanged<FlowLevel?> onSetFlowLevel;
+
+  /// Defines a custom symptom name for reuse on any day.
+  final ValueChanged<String> onAddCustomSymptom;
+
+  /// Logs a symptom for today, or removes it when it is already logged.
+  final ValueChanged<String> onToggleSymptom;
+
+  /// Sets an optional severity or value on a logged symptom; null clears it.
+  final void Function(DateTime day, String name, String? value)
+  onSetSymptomValue;
 
   /// Records the day a period ended.
   final void Function(Period period, DateTime end) onEndPeriod;
@@ -119,6 +145,30 @@ class HomeView extends StatelessWidget {
                   ),
                 ),
               ],
+              const SizedBox(height: 24),
+              Text('Symptoms', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 8),
+              Text(
+                'Tap a symptom to log it for today. A severity or value is '
+                'optional.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final name in symptomNames)
+                    FilterChip(
+                      label: Text(name),
+                      selected: todaySymptoms.any((symptom) => symptom.name == name),
+                      onSelected: (_) => onToggleSymptom(name),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              _CustomSymptomField(onAdd: onAddCustomSymptom),
               if (hasLogEntries) ...[
                 const SizedBox(height: 32),
                 Text('Periods', style: theme.textTheme.titleMedium),
@@ -170,6 +220,37 @@ class HomeView extends StatelessWidget {
                       ),
                       title: Text(formatLongDate(entry.date)),
                       subtitle: Text('${entry.flowLevel!.label} flow'),
+                    ),
+                  ),
+                ],
+                if (symptomDays.isNotEmpty) ...[
+                  const SizedBox(height: 24),
+                  Text('Logged symptoms', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  ...symptomDays.expand(
+                    (entry) => entry.symptoms.map(
+                      (symptom) => ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(
+                          Icons.healing,
+                          color: MoonpetalColors.deepPink,
+                        ),
+                        title: Text(
+                          '${symptom.name}: ${symptom.value ?? 'no severity or value'}',
+                        ),
+                        subtitle: Text(formatLongDate(entry.date)),
+                        trailing: TextButton(
+                          onPressed: () => _setSymptomDetail(
+                            context,
+                            entry.date,
+                            symptom.name,
+                            symptom.value,
+                          ),
+                          child: Text(
+                            symptom.value == null ? 'Add detail' : 'Edit detail',
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -233,6 +314,22 @@ class HomeView extends StatelessWidget {
     );
     if (picked == null || !context.mounted) return;
     onEndPeriod(period, picked);
+  }
+
+  Future<void> _setSymptomDetail(
+    BuildContext context,
+    DateTime day,
+    String name,
+    String? current,
+  ) async {
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) =>
+          _SymptomDetailDialog(name: name, initialValue: current),
+    );
+    if (value == null || !context.mounted) return;
+    final trimmed = value.trim();
+    onSetSymptomValue(day, name, trimmed.isEmpty ? null : trimmed);
   }
 }
 
@@ -320,6 +417,105 @@ class _CycleCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _SymptomDetailDialog extends StatefulWidget {
+  const _SymptomDetailDialog({required this.name, this.initialValue});
+
+  final String name;
+  final String? initialValue;
+
+  @override
+  State<_SymptomDetailDialog> createState() => _SymptomDetailDialogState();
+}
+
+class _SymptomDetailDialogState extends State<_SymptomDetailDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initialValue ?? '',
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('${widget.name} detail'),
+      content: TextField(
+        key: const Key('symptomDetailField'),
+        controller: _controller,
+        autofocus: true,
+        decoration: const InputDecoration(
+          labelText: 'Severity or value (optional)',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _controller.text),
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+class _CustomSymptomField extends StatefulWidget {
+  const _CustomSymptomField({required this.onAdd});
+
+  final ValueChanged<String> onAdd;
+
+  @override
+  State<_CustomSymptomField> createState() => _CustomSymptomFieldState();
+}
+
+class _CustomSymptomFieldState extends State<_CustomSymptomField> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _add() {
+    final name = _controller.text;
+    if (name.trim().isEmpty) return;
+    widget.onAdd(name);
+    _controller.clear();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            key: const Key('customSymptomField'),
+            controller: _controller,
+            decoration: const InputDecoration(
+              labelText: 'New symptom name',
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (_) => _add(),
+          ),
+        ),
+        const SizedBox(width: 8),
+        FilledButton.tonal(
+          key: const Key('addSymptomButton'),
+          onPressed: _add,
+          child: const Text('Add symptom'),
+        ),
+      ],
     );
   }
 }

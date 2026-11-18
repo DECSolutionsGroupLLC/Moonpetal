@@ -61,6 +61,22 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
   Future<void> _endPeriod(Period period, DateTime end) =>
       _commit((document) => document.withPeriodEnd(period, end));
 
+  /// Sets the optional severity or value on [day]'s logged [name].
+  Future<void> _setSymptomValue(DateTime day, String name, String? value) =>
+      _commit(
+        (document) => document.withLoggedSymptom(day, name, value: value),
+      );
+
+  /// Defines a custom symptom name for reuse on any day.
+  Future<void> _addCustomSymptom(String name) =>
+      _commit((document) => document.withCustomSymptomName(name));
+
+  /// Taps a symptom chip on the daily screen: logs it for today, or removes
+  /// it when it is already logged.
+  Future<void> _toggleSymptom(String name) => _commit(
+    (document) => document.withToggledSymptom(widget.clock.now(), name),
+  );
+
   @override
   Widget build(BuildContext context) {
     final document = _document;
@@ -80,9 +96,15 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
                 periods: document.periods,
                 cycleHistory: document.cycleHistory,
                 todayFlowLevel: document.flowLevelFor(widget.clock.now()),
+                symptomNames: document.availableSymptomNames,
+                todaySymptoms: document.symptomsFor(widget.clock.now()),
+                symptomDays: document.symptomDays,
                 onLogPeriodDay: _logPeriodDay,
                 onSetPeriodStart: _recordPeriodDay,
                 onSetFlowLevel: _setFlowLevel,
+                onAddCustomSymptom: _addCustomSymptom,
+                onToggleSymptom: _toggleSymptom,
+                onSetSymptomValue: _setSymptomValue,
                 onEndPeriod: _endPeriod,
               ),
       ),

@@ -124,7 +124,9 @@ void main() {
     expect(find.text('Open period'), findsOneWidget);
     expect(find.text('Mark as ended'), findsOneWidget);
 
-    await tester.tap(find.text('Mark as ended'));
+    final endButton = find.text('Mark as ended');
+    await tester.ensureVisible(endButton);
+    await tester.tap(endButton);
     await tester.pumpAndSettle();
     await tester.tap(find.text('OK'));
     await tester.pumpAndSettle();
