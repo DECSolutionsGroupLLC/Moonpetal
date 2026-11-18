@@ -6,6 +6,7 @@ import 'src/estimate.dart';
 import 'src/home_view.dart';
 import 'src/log_entries.dart';
 import 'src/periods.dart';
+import 'src/phases.dart';
 import 'src/phone_viewport.dart';
 import 'src/storage.dart';
 import 'src/theme.dart';
@@ -143,6 +144,15 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
   @override
   Widget build(BuildContext context) {
     final document = _document;
+    final nextPeriodEstimate = document == null
+        ? null
+        : estimateNextPeriod(document.cycleHistory, today: widget.clock.now());
+    final phaseEstimates = nextPeriodEstimate == null || document == null
+        ? <PhaseEstimate>[]
+        : estimatePhases(
+            cycles: document.cycleHistory,
+            nextPeriod: nextPeriodEstimate,
+          );
 
     return MaterialApp(
       title: 'Moonpetal',
@@ -158,10 +168,8 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
                 flowDays: document.flowDays,
                 periods: document.periods,
                 cycleHistory: document.cycleHistory,
-                nextPeriodEstimate: estimateNextPeriod(
-                  document.cycleHistory,
-                  today: widget.clock.now(),
-                ),
+                nextPeriodEstimate: nextPeriodEstimate,
+                phaseEstimates: phaseEstimates,
                 todayFlowLevel: document.flowLevelFor(widget.clock.now()),
                 symptomNames: document.availableSymptomNames,
                 todaySymptoms: document.symptomsFor(widget.clock.now()),

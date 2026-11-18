@@ -36,6 +36,13 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// Scopes wording assertions to the next-period card: the cycle calendar
+  /// also presents labelled estimates and the same "not exact" assurance.
+  Finder inNextPeriodCard(Finder finder) => find.descendant(
+    of: find.byKey(const Key('nextPeriodEstimate')),
+    matching: finder,
+  );
+
   int displayedWindowDays(WidgetTester tester) {
     final text = tester.widget<Text>(
       find.textContaining('This window spans about'),
@@ -63,7 +70,7 @@ void main() {
     );
 
     expect(find.text('Next period Estimate'), findsOneWidget);
-    expect(find.text('Estimate'), findsOneWidget);
+    expect(inNextPeriodCard(find.text('Estimate')), findsOneWidget);
     expect(
       find.text('Around ${formatLongDate(DateTime(2026, 3, 26))}'),
       findsOneWidget,
@@ -89,7 +96,10 @@ void main() {
       ]),
     );
 
-    expect(find.textContaining('not an exact date'), findsOneWidget);
+    expect(
+      inNextPeriodCard(find.textContaining('not an exact date')),
+      findsOneWidget,
+    );
     expect(find.textContaining('due date'), findsNothing);
     expect(find.textContaining('prediction'), findsNothing);
     expect(find.textContaining('exactly'), findsNothing);
@@ -113,7 +123,10 @@ void main() {
     final regularWindow = displayedWindowDays(tester);
     final regularRangeText = displayedRangeText(tester);
     expect(find.textContaining('fairly regular'), findsOneWidget);
-    expect(find.textContaining('not an exact date'), findsOneWidget);
+    expect(
+      inNextPeriodCard(find.textContaining('not an exact date')),
+      findsOneWidget,
+    );
 
     // Same number of cycles and the same latest start, but 28/20/36 days.
     await pumpApp(
@@ -130,7 +143,10 @@ void main() {
     expect(variedWindow, greaterThan(regularWindow));
     expect(displayedRangeText(tester), isNot(regularRangeText));
     expect(find.textContaining('varied'), findsOneWidget);
-    expect(find.textContaining('not an exact date'), findsOneWidget);
+    expect(
+      inNextPeriodCard(find.textContaining('not an exact date')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('recent cycles count for more than older ones', (tester) async {

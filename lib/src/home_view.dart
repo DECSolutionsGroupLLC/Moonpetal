@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'cycles.dart';
 import 'estimate.dart';
 import 'log_entries.dart';
+import 'phases.dart';
 import 'periods.dart';
 import 'theme.dart';
 
@@ -11,6 +12,12 @@ import 'theme.dart';
 const String cycleLengthExplanation =
     'Cycle length counts the days from one period start to the next period '
     'start.';
+
+/// Why the cycle calendar's phases are estimates, in plain language.
+const String phaseCalendarExplanation =
+    'Estimated phases for the cycle leading up to your next period, based on '
+    'your logged Cycle lengths and Bleed durations. Each phase is an '
+    'approximate window and an estimate, not an exact date or medical advice.';
 
 String _daysLabel(int days) => '$days ${days == 1 ? 'day' : 'days'}';
 
@@ -28,6 +35,7 @@ class HomeView extends StatelessWidget {
     required this.periods,
     required this.cycleHistory,
     required this.nextPeriodEstimate,
+    required this.phaseEstimates,
     required this.todayFlowLevel,
     required this.symptomNames,
     required this.todaySymptoms,
@@ -71,6 +79,9 @@ class HomeView extends StatelessWidget {
 
   /// The next-period Estimate, recomputed from the current cycle history.
   final NextPeriodEstimate? nextPeriodEstimate;
+
+  /// The four estimated Phases of the cycle, empty until enough is logged.
+  final List<PhaseEstimate> phaseEstimates;
 
   /// The Flow level saved for today, if the user has recorded one.
   final FlowLevel? todayFlowLevel;
@@ -181,6 +192,10 @@ class HomeView extends StatelessWidget {
               ],
               if (nextPeriodEstimate != null) ...[
                 _NextPeriodEstimateCard(estimate: nextPeriodEstimate!),
+                const SizedBox(height: 8),
+              ],
+              if (phaseEstimates.isNotEmpty) ...[
+                _CycleCalendarCard(phases: phaseEstimates, today: today),
                 const SizedBox(height: 8),
               ],
               FilledButton.icon(
@@ -695,6 +710,7 @@ class _NextPeriodEstimateCard extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Card(
+      key: const Key('nextPeriodEstimate'),
       margin: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -746,6 +762,248 @@ class _NextPeriodEstimateCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Every readable Phase detail in one place, so the Phases cannot drift apart.
+extension _PhaseStyle on CyclePhase {
+  String get label => switch (this) {
+    CyclePhase.menstrual => 'Menstrual',
+    CyclePhase.follicular => 'Follicular',
+    CyclePhase.ovulatory => 'Ovulatory',
+    CyclePhase.luteal => 'Luteal',
+  };
+
+  String get hint => switch (this) {
+    CyclePhase.menstrual => 'bleeding days',
+    CyclePhase.follicular => 'before mid-cycle',
+    CyclePhase.ovulatory => 'around mid-cycle',
+    CyclePhase.luteal => 'after mid-cycle',
+  };
+
+  /// Distinct soft tints, all light enough for deep-pink ink to stay readable.
+  Color get tint => switch (this) {
+    CyclePhase.menstrual => const Color(0xFFECA8C6),
+    CyclePhase.follicular => const Color(0xFFFDE2EC),
+    CyclePhase.ovulatory => const Color(0xFFF0B7D2),
+    CyclePhase.luteal => const Color(0xFFE6D0E8),
+  };
+}
+
+/// A small calendar of the estimated Cycle, with all four Phases labelled as
+/// estimates. The day strip gives the visual; the legend gives the words.
+class _CycleCalendarCard extends StatelessWidget {
+  const _CycleCalendarCard({required this.phases, required this.today});
+
+  final List<PhaseEstimate> phases;
+  final DateTime today;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      key: const Key('cycleCalendar'),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  'Cycle calendar',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: MoonpetalColors.deepPink,
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: MoonpetalColors.softPink,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'Estimate',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: MoonpetalColors.deepPink,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              phaseCalendarExplanation,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _PhaseDayStrip(phases: phases, today: today),
+            const SizedBox(height: 12),
+            ...phases.map((phase) => _PhaseLegendRow(phase: phase)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A coloured day strip for the estimated Cycle, with a "you are here" cue.
+/// No day is ever marked "safe".
+class _PhaseDayStrip extends StatelessWidget {
+  const _PhaseDayStrip({required this.phases, required this.today});
+
+  final List<PhaseEstimate> phases;
+  final DateTime today;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cells = <Widget>[];
+    CyclePhase? todayPhase;
+    var day = phases.first.start;
+    while (!day.isAfter(phases.last.end)) {
+      final phase = phases.firstWhere(
+        (candidate) =>
+            !day.isBefore(candidate.start) && !day.isAfter(candidate.end),
+      );
+      final isToday =
+          day.year == today.year &&
+          day.month == today.month &&
+          day.day == today.day;
+      if (isToday) todayPhase = phase.phase;
+      cells.add(
+        Semantics(
+          label: '${isToday ? 'Today, ' : ''}'
+              '${phase.phase.label} phase (estimate), ${formatLongDate(day)}',
+          child: Container(
+            width: 34,
+            height: 42,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: phase.phase.tint,
+              borderRadius: BorderRadius.circular(6),
+              border: isToday
+                  ? Border.all(color: MoonpetalColors.deepPink, width: 2)
+                  : null,
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  '${day.day}',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: MoonpetalColors.deepPink,
+                  ),
+                ),
+                Text(
+                  phase.phase.label.substring(0, 1),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: MoonpetalColors.deepPink,
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      day = addCalendarDays(day, 1);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(spacing: 2, runSpacing: 4, children: cells),
+        if (todayPhase != null) ...[
+          const SizedBox(height: 8),
+          Text('Today: estimated ${todayPhase.label.toLowerCase()} phase.'),
+        ],
+      ],
+    );
+  }
+}
+
+/// The readable label, estimate badge, and estimated dates for one Phase.
+class _PhaseLegendRow extends StatelessWidget {
+  const _PhaseLegendRow({required this.phase});
+
+  final PhaseEstimate phase;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final format = DateFormat('d MMM');
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 16,
+            height: 16,
+            decoration: BoxDecoration(
+              color: phase.phase.tint,
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      phase.phase.label,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: MoonpetalColors.deepPink,
+                      ),
+                    ),
+                    Container(
+                      key: Key('phase-estimate-${phase.phase.name}'),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: MoonpetalColors.softPink,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        'Estimate',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: MoonpetalColors.deepPink,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  '${phase.phase.hint}: '
+                  '${format.format(phase.start)} – ${format.format(phase.end)}',
+                  key: Key('phase-range-${phase.phase.name}'),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
