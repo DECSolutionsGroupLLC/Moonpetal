@@ -3,22 +3,40 @@ import 'package:flutter/material.dart';
 import 'src/clock.dart';
 import 'src/cycles.dart';
 import 'src/estimate.dart';
+import 'src/fertility.dart';
 import 'src/home_view.dart';
+import 'src/insights.dart';
 import 'src/log_entries.dart';
 import 'src/periods.dart';
 import 'src/phases.dart';
 import 'src/phone_viewport.dart';
+import 'src/reminders.dart';
 import 'src/storage.dart';
 import 'src/theme.dart';
 
 /// Root widget. Clock and store are injected so tests can substitute both.
 class MoonpetalApp extends StatefulWidget {
-  const MoonpetalApp({super.key, Clock? clock, AppStore? store})
-    : clock = clock ?? const SystemClock(),
-      store = store ?? const JsonFileAppStore();
+  const MoonpetalApp({
+    super.key,
+    Clock? clock,
+    AppStore? store,
+    ReminderScheduler? reminderScheduler,
+    bool? notificationsAvailable,
+  })  : clock = clock ?? const SystemClock(),
+        store = store ?? const JsonFileAppStore(),
+        reminderScheduler = reminderScheduler ?? const NoOpReminderScheduler(),
+        notificationsAvailable = notificationsAvailable ?? false;
 
   final Clock clock;
   final AppStore store;
+
+  /// The outward boundary for local notifications. Defaults to the no-op
+  /// scheduler; [main] supplies the Android implementation only on Android.
+  final ReminderScheduler reminderScheduler;
+
+  /// Whether this build can deliver local notifications. Drives the plain
+  /// statement shown instead of silently dropping reminders on other platforms.
+  final bool notificationsAvailable;
 
   @override
   State<MoonpetalApp> createState() => _MoonpetalAppState();
@@ -37,6 +55,7 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
     final document = await widget.store.read();
     if (!mounted) return;
     setState(() => _document = document);
+    await _syncReminders(document);
   }
 
   /// Applies a document transform, persists it, then shows the new state.
@@ -47,6 +66,24 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
     await widget.store.write(updated);
     if (!mounted) return;
     setState(() => _document = updated);
+    await _syncReminders(updated);
+  }
+
+  /// Replaces the device's pending reminders to match the stored Settings and
+  /// the current Estimate. A platform that cannot schedule simply ignores it.
+  Future<void> _syncReminders(Map<String, Object?> document) async {
+    final estimate = estimateNextPeriod(
+      document.cycleHistory,
+      today: widget.clock.now(),
+    );
+    try {
+      await widget.reminderScheduler.sync(
+        planReminders(document.reminderSettings, estimate),
+      );
+    } catch (_) {
+      // A denied notification permission must never break logging. The UI
+      // states the Android-only limitation; no error is sent anywhere.
+    }
   }
 
   Future<void> _recordPeriodDay(DateTime day) => _commit(
@@ -131,6 +168,12 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
     );
   }
 
+  /// Opts the user into or out of the fertility view, persisting the choice.
+  Future<void> _toggleFertilityView() => _commit(
+    (document) =>
+        document.withFertilityViewEnabled(!document.fertilityViewEnabled),
+  );
+
   /// Taps a symptom chip on the daily screen: logs it for today, or removes
   /// it when it is already logged.
   Future<void> _toggleSymptom(String name) => _commit(
@@ -138,6 +181,14 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
       widget.clock.now(),
       name,
       at: widget.clock.now(),
+    ),
+  );
+
+  Future<void> _setReminderSettings(
+    ReminderSettings Function(ReminderSettings) update,
+  ) => _commit(
+    (document) => document.withReminderSettings(
+      update(document.reminderSettings),
     ),
   );
 
@@ -153,6 +204,12 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
             cycles: document.cycleHistory,
             nextPeriod: nextPeriodEstimate,
           );
+    final fertilityEstimate = document == null
+        ? null
+        : estimateFertility(phaseEstimates);
+    final patternInsights = document == null
+        ? PatternInsights.empty
+        : document.patternInsights;
 
     return MaterialApp(
       title: 'Moonpetal',
@@ -170,6 +227,13 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
                 cycleHistory: document.cycleHistory,
                 nextPeriodEstimate: nextPeriodEstimate,
                 phaseEstimates: phaseEstimates,
+                fertilityViewEnabled: document.fertilityViewEnabled,
+                fertilityEstimate: fertilityEstimate,
+                onToggleFertilityView: _toggleFertilityView,
+                reminderSettings: document.reminderSettings,
+                notificationsAvailable: widget.notificationsAvailable,
+                onUpdateReminderSettings: _setReminderSettings,
+                insights: patternInsights,
                 todayFlowLevel: document.flowLevelFor(widget.clock.now()),
                 symptomNames: document.availableSymptomNames,
                 todaySymptoms: document.symptomsFor(widget.clock.now()),

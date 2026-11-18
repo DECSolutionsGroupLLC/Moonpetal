@@ -12,6 +12,9 @@ const String symptomNamesKey = 'symptomNames';
 /// User-created tag labels, stored once and reused on later days.
 const String tagNamesKey = 'tagNames';
 
+/// Whether the opt-in fertility view is shown. Absent means off.
+const String fertilityViewEnabledKey = 'fertilityViewEnabled';
+
 /// Typed access to the document so callers don't repeat its string keys.
 extension AppDocument on Map<String, Object?> {
   /// First run means no log entries, even if Settings have been stored.

@@ -3,9 +3,15 @@ import 'package:intl/intl.dart';
 
 import 'cycles.dart';
 import 'estimate.dart';
+import 'fertility.dart';
+import 'insights.dart';
+import 'insights_view.dart';
 import 'log_entries.dart';
 import 'phases.dart';
 import 'periods.dart';
+import 'phone_viewport.dart';
+import 'reminders.dart';
+import 'reminders_view.dart';
 import 'theme.dart';
 
 /// Plain-language explanation of how Cycle length is counted.
@@ -36,6 +42,13 @@ class HomeView extends StatelessWidget {
     required this.cycleHistory,
     required this.nextPeriodEstimate,
     required this.phaseEstimates,
+    required this.fertilityViewEnabled,
+    required this.fertilityEstimate,
+    required this.onToggleFertilityView,
+    required this.reminderSettings,
+    required this.notificationsAvailable,
+    required this.onUpdateReminderSettings,
+    required this.insights,
     required this.todayFlowLevel,
     required this.symptomNames,
     required this.todaySymptoms,
@@ -82,6 +95,28 @@ class HomeView extends StatelessWidget {
 
   /// The four estimated Phases of the cycle, empty until enough is logged.
   final List<PhaseEstimate> phaseEstimates;
+
+  /// Whether the user has opted into the fertility view. Off by default.
+  final bool fertilityViewEnabled;
+
+  /// The estimated ovulation day and fertile window, when enough is logged.
+  final FertilityEstimate? fertilityEstimate;
+
+  /// Flips the fertility opt-in, persisting the user's choice.
+  final VoidCallback onToggleFertilityView;
+
+  /// The stored reminder Settings, configurable on the reminders screen.
+  final ReminderSettings reminderSettings;
+
+  /// Whether this build can deliver local notifications.
+  final bool notificationsAvailable;
+
+  /// Persists a change to reminder Settings, using the current stored value.
+  final ValueChanged<ReminderSettings Function(ReminderSettings)>
+  onUpdateReminderSettings;
+
+  /// Pattern insights recomputed from the current periods and log entries.
+  final PatternInsights insights;
 
   /// The Flow level saved for today, if the user has recorded one.
   final FlowLevel? todayFlowLevel;
@@ -189,7 +224,31 @@ class HomeView extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  key: const Key('viewInsightsButton'),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => PhoneViewport(
+                        child: InsightsView(insights: insights),
+                      ),
+                    ),
+                  ),
+                  icon: const Icon(Icons.insights),
+                  label: const Text('View insights'),
+                ),
+                const SizedBox(height: 16),
               ],
+              OutlinedButton.icon(
+                key: const Key('reminderSettingsButton'),
+                onPressed: () => _openReminderSettings(context),
+                icon: const Icon(Icons.notifications_outlined),
+                label: Text(
+                  notificationsAvailable
+                      ? 'Reminder settings'
+                      : 'Reminder settings (Android-only)',
+                ),
+              ),
+              const SizedBox(height: 16),
               if (nextPeriodEstimate != null) ...[
                 _NextPeriodEstimateCard(estimate: nextPeriodEstimate!),
                 const SizedBox(height: 8),
@@ -300,6 +359,12 @@ class HomeView extends StatelessWidget {
               Text('Note', style: theme.textTheme.titleMedium),
               const SizedBox(height: 8),
               _NoteField(initialNote: todayNote, onSave: onSaveNote),
+              const SizedBox(height: 24),
+              _FertilityCard(
+                enabled: fertilityViewEnabled,
+                estimate: fertilityEstimate,
+                onToggle: onToggleFertilityView,
+              ),
               if (hasLogEntries) ...[
                 const SizedBox(height: 32),
                 Text('Periods', style: theme.textTheme.titleMedium),
@@ -463,6 +528,21 @@ class HomeView extends StatelessWidget {
               (period.end == null || !day.isAfter(period.end!)),
         )
         .toList();
+  }
+
+  void _openReminderSettings(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PhoneViewport(
+          child: ReminderSettingsView(
+            settings: reminderSettings,
+            notificationsAvailable: notificationsAvailable,
+            estimate: nextPeriodEstimate,
+            onUpdateSettings: onUpdateReminderSettings,
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _setStart(BuildContext context) async {
@@ -1005,6 +1085,152 @@ class _PhaseLegendRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The opt-in fertility view. Off until the user turns it on; the
+/// contraception notice is a permanent part of the view and no day is ever
+/// coloured "safe".
+class _FertilityCard extends StatelessWidget {
+  const _FertilityCard({
+    required this.enabled,
+    required this.estimate,
+    required this.onToggle,
+  });
+
+  final bool enabled;
+  final FertilityEstimate? estimate;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final fertility = estimate;
+
+    return Card(
+      key: const Key('fertilityView'),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Fertility view',
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: MoonpetalColors.deepPink,
+              ),
+            ),
+            SwitchListTile(
+              key: const Key('fertilityViewSwitch'),
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Show fertility estimates'),
+              subtitle: const Text(
+                'Off by default. Turn on to see an Ovulation estimate and a '
+                'Fertile window.',
+              ),
+              value: enabled,
+              onChanged: (_) => onToggle(),
+            ),
+            if (enabled) ...[
+              const SizedBox(height: 8),
+              if (fertility != null) ...[
+                _FertilityEstimateRow(
+                  badgeKey: const Key('estimateBadge-ovulation'),
+                  title: 'Ovulation estimate',
+                  detailKey: const Key('ovulation-date'),
+                  detail: 'Around ${formatLongDate(fertility.ovulationDay)}',
+                ),
+                const SizedBox(height: 12),
+                _FertilityEstimateRow(
+                  badgeKey: const Key('estimateBadge-fertileWindow'),
+                  title: 'Fertile window',
+                  detailKey: const Key('fertile-window-range'),
+                  detail: 'Between ${formatLongDate(fertility.fertileStart)} '
+                      'and ${formatLongDate(fertility.fertileEnd)}',
+                ),
+              ] else ...[
+                const Text(
+                  'Log at least two cycles to see fertility estimates.',
+                ),
+              ],
+              const SizedBox(height: 12),
+              Container(
+                key: const Key('fertilityContraceptionNotice'),
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: MoonpetalColors.softPink,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'These estimates are not reliable contraception. Do not use '
+                  'them to avoid pregnancy.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: MoonpetalColors.deepPink,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One labelled fertility estimate: a title, an "Estimate" badge, and the
+/// readable date or range.
+class _FertilityEstimateRow extends StatelessWidget {
+  const _FertilityEstimateRow({
+    required this.badgeKey,
+    required this.title,
+    required this.detailKey,
+    required this.detail,
+  });
+
+  final Key badgeKey;
+  final String title;
+  final Key detailKey;
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(
+              title,
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: MoonpetalColors.deepPink,
+              ),
+            ),
+            Container(
+              key: badgeKey,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: MoonpetalColors.softPink,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                'Estimate',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: MoonpetalColors.deepPink,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(detail, key: detailKey),
+      ],
     );
   }
 }

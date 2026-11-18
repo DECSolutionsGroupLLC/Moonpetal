@@ -26,7 +26,9 @@ void main() {
     final noteField = find.byKey(const Key('noteField'));
     await tester.ensureVisible(noteField);
     await tester.enterText(noteField, 'Felt great today');
-    await tester.tap(find.byKey(const Key('saveNoteButton')));
+    final saveNote = find.byKey(const Key('saveNoteButton'));
+    await tester.ensureVisible(saveNote);
+    await tester.tap(saveNote);
     await tester.pumpAndSettle();
 
     expect(find.text('Notes'), findsOneWidget);
@@ -34,7 +36,8 @@ void main() {
 
     await tester.ensureVisible(noteField);
     await tester.enterText(noteField, 'Actually quite tired');
-    await tester.tap(find.byKey(const Key('saveNoteButton')));
+    await tester.ensureVisible(saveNote);
+    await tester.tap(saveNote);
     await tester.pumpAndSettle();
 
     expect(
