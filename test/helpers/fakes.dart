@@ -10,6 +10,16 @@ class FixedClock implements Clock {
   DateTime now() => fixedNow;
 }
 
+/// A clock a test can advance between actions, so history timestamps differ.
+class SettableClock implements Clock {
+  SettableClock(this.fixedNow);
+
+  DateTime fixedNow;
+
+  @override
+  DateTime now() => fixedNow;
+}
+
 class InMemoryAppStore implements AppStore {
   InMemoryAppStore({Map<String, Object?>? document})
     : _document = document ?? <String, Object?>{};

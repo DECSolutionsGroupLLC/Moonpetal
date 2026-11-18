@@ -47,13 +47,24 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
     setState(() => _document = updated);
   }
 
-  Future<void> _recordPeriodDay(DateTime day) =>
-      _commit((document) => document.withPeriodDay(day));
+  Future<void> _recordPeriodDay(DateTime day) => _commit(
+    (document) => document.withPeriodDay(day, at: widget.clock.now()),
+  );
+
+  Future<void> _removePeriodDay(DateTime day) => _commit(
+    (document) => document.withoutPeriodDay(day, at: widget.clock.now()),
+  );
+
+  /// Clears every value on [day], leaving the edit history reviewable.
+  Future<void> _deleteEntry(DateTime day) => _commit(
+    (document) => document.deleteLogEntry(day, at: widget.clock.now()),
+  );
 
   Future<void> _logPeriodDay() => _recordPeriodDay(widget.clock.now());
 
-  Future<void> _recordFlowLevel(DateTime day, FlowLevel? level) =>
-      _commit((document) => document.withFlowLevel(day, level));
+  Future<void> _recordFlowLevel(DateTime day, FlowLevel? level) => _commit(
+    (document) => document.withFlowLevel(day, level, at: widget.clock.now()),
+  );
 
   Future<void> _setFlowLevel(FlowLevel? level) =>
       _recordFlowLevel(widget.clock.now(), level);
@@ -64,12 +75,27 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
   /// Sets the optional severity or value on [day]'s logged [name].
   Future<void> _setSymptomValue(DateTime day, String name, String? value) =>
       _commit(
-        (document) => document.withLoggedSymptom(day, name, value: value),
+        (document) => document.withLoggedSymptom(
+          day,
+          name,
+          value: value,
+          at: widget.clock.now(),
+        ),
       );
 
+  /// Removes [name] from [day], keeping the change in the edit history.
+  Future<void> _removeSymptom(DateTime day, String name) => _commit(
+    (document) =>
+        document.withoutLoggedSymptom(day, name, at: widget.clock.now()),
+  );
+
+  /// Saves a free-text note for [day]; null or blank clears it.
+  Future<void> _saveNoteFor(DateTime day, String? note) => _commit(
+    (document) => document.withNote(day, note, at: widget.clock.now()),
+  );
+
   /// Saves a free-text note for today; null or blank clears it.
-  Future<void> _saveNote(String? note) =>
-      _commit((document) => document.withNote(widget.clock.now(), note));
+  Future<void> _saveNote(String? note) => _saveNoteFor(widget.clock.now(), note);
 
   /// Defines a custom symptom name for reuse on any day.
   Future<void> _addCustomSymptom(String name) =>
@@ -79,15 +105,38 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
   Future<void> _addTagName(String name) =>
       _commit((document) => document.withTagName(name));
 
-  /// Attaches a tag to today, or removes it when it is already attached.
-  Future<void> _toggleTag(String name) => _commit(
-    (document) => document.withToggledTag(widget.clock.now(), name),
+  /// Attaches a tag to [day], or removes it when it is already attached.
+  Future<void> _toggleTagFor(DateTime day, String name) => _commit(
+    (document) => document.withToggledTag(day, name, at: widget.clock.now()),
   );
+
+  /// Attaches a tag to today, or removes it when it is already attached.
+  Future<void> _toggleTag(String name) => _toggleTagFor(widget.clock.now(), name);
+
+  /// Removes [name] from [day], keeping the change in the edit history.
+  Future<void> _removeTag(DateTime day, String name) => _commit(
+    (document) => document.withoutTag(day, name, at: widget.clock.now()),
+  );
+
+  /// Replaces one tag with another on [day], recording both changes.
+  Future<void> _correctTag(DateTime day, String oldName, String newName) {
+    final at = widget.clock.now();
+    return _commit(
+      (document) => document
+          .withTagName(newName)
+          .withoutTag(day, oldName, at: at)
+          .withTag(day, newName, at: at),
+    );
+  }
 
   /// Taps a symptom chip on the daily screen: logs it for today, or removes
   /// it when it is already logged.
   Future<void> _toggleSymptom(String name) => _commit(
-    (document) => document.withToggledSymptom(widget.clock.now(), name),
+    (document) => document.withToggledSymptom(
+      widget.clock.now(),
+      name,
+      at: widget.clock.now(),
+    ),
   );
 
   @override
@@ -119,14 +168,22 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
                 tagDays: document.tagDays,
                 onLogPeriodDay: _logPeriodDay,
                 onSetPeriodStart: _recordPeriodDay,
+                onRemovePeriodDay: _removePeriodDay,
+                onDeleteEntry: _deleteEntry,
                 onSetFlowLevel: _setFlowLevel,
+                onCorrectFlowLevel: _recordFlowLevel,
                 onAddCustomSymptom: _addCustomSymptom,
                 onToggleSymptom: _toggleSymptom,
                 onSetSymptomValue: _setSymptomValue,
+                onRemoveSymptom: _removeSymptom,
                 onAddTagName: _addTagName,
                 onToggleTag: _toggleTag,
+                onRemoveTag: _removeTag,
+                onCorrectTag: _correctTag,
                 onSaveNote: _saveNote,
+                onCorrectNote: _saveNoteFor,
                 onEndPeriod: _endPeriod,
+                editHistoryForDay: document.editHistoryForDay,
               ),
       ),
     );

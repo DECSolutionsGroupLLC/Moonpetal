@@ -60,4 +60,26 @@ void main() {
     expect(document.periodDays, hasLength(1));
     expect(document.periodDays.containsDay(day), isTrue);
   });
+
+  test('edit history and its timestamps survive JSON persistence', () async {
+    final day = DateTime(2026, 11, 18);
+    final store = JsonFileAppStore(documentsDirectory: () async => directory);
+    await store.write(
+      <String, Object?>{}
+          .withNote(day, 'Original', at: DateTime(2026, 11, 18, 8, 30))
+          .withNote(day, 'Corrected', at: DateTime(2026, 11, 18, 9, 15)),
+    );
+
+    final reopened = JsonFileAppStore(
+      documentsDirectory: () async => directory,
+    );
+    final history = (await reopened.read()).editHistoryFor(day, noteKey);
+
+    expect(
+      history.map((record) => record.value),
+      equals(['Original', 'Corrected']),
+    );
+    expect(history.first.at, DateTime(2026, 11, 18, 8, 30));
+    expect(history.last.at, DateTime(2026, 11, 18, 9, 15));
+  });
 }

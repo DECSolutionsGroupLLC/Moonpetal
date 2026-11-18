@@ -3,13 +3,76 @@ import 'package:intl/intl.dart';
 import 'storage.dart';
 
 const String _dateKey = 'date';
-const String _periodDayKey = 'periodDay';
-const String _flowLevelKey = 'flowLevel';
+const String periodDayKey = 'periodDay';
+const String flowLevelKey = 'flowLevel';
 const String symptomsKey = 'symptoms';
 const String _symptomNameKey = 'name';
 const String _symptomValueKey = 'value';
+
+/// Edit-history field prefixes for one named symptom or tag.
+const String symptomHistoryPrefix = 'symptom:';
+const String tagHistoryPrefix = 'tag:';
+
+String symptomHistoryField(String name) => '$symptomHistoryPrefix$name';
+String tagHistoryField(String name) => '$tagHistoryPrefix$name';
+
 const String noteKey = 'note';
 const String tagsKey = 'tags';
+const String editHistoryKey = 'editHistory';
+
+const String _historyFieldKey = 'field';
+const String _historyValueKey = 'value';
+const String _historyAtKey = 'at';
+
+/// One value a field has held on a log entry, with the moment it was saved.
+///
+/// Values are appended oldest first, so the last one for a field is its
+/// current value. A null [value] means the field was cleared.
+class HistoryValue {
+  const HistoryValue({
+    required this.field,
+    required this.value,
+    required this.at,
+  });
+
+  /// The key of the field that changed, e.g. `note` or `flowLevel`.
+  final String field;
+
+  /// The value saved at [at], or null when the field was cleared.
+  final Object? value;
+
+  final DateTime at;
+
+  factory HistoryValue.fromJson(Map<String, Object?> json) => HistoryValue(
+    field: json[_historyFieldKey] as String,
+    value: json[_historyValueKey],
+    at: DateTime.parse(json[_historyAtKey] as String),
+  );
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    _historyFieldKey: field,
+    if (value != null) _historyValueKey: value,
+    _historyAtKey: at.toIso8601String(),
+  };
+}
+
+/// A history value only when the caller supplied a clock time.
+HistoryValue? _stamped(String field, Object? value, DateTime? at) =>
+    at == null ? null : HistoryValue(field: field, value: value, at: at);
+
+/// The most recent saved value for [field] on one stored log entry.
+HistoryValue? _lastHistoryValue(Map<String, Object?> entry, String field) {
+  final stored = entry[editHistoryKey];
+  if (stored is! List) return null;
+  HistoryValue? last;
+  for (final item in stored) {
+    if (item is Map<String, Object?>) {
+      final value = HistoryValue.fromJson(item);
+      if (value.field == field) last = value;
+    }
+  }
+  return last;
+}
 
 /// The small set of common symptoms offered on the daily screen from the
 /// start. User-defined names are stored alongside these in the document.
@@ -90,8 +153,8 @@ class LogEntry {
 
   factory LogEntry.fromJson(Map<String, Object?> json) => LogEntry(
     date: DateTime.parse(json[_dateKey] as String),
-    isPeriodDay: json[_periodDayKey] == true,
-    flowLevel: FlowLevel.values.asNameMap()[json[_flowLevelKey]],
+    isPeriodDay: json[periodDayKey] == true,
+    flowLevel: FlowLevel.values.asNameMap()[json[flowLevelKey]],
     symptoms:
         (json[symptomsKey] as List?)
             ?.whereType<Map<String, Object?>>()
@@ -163,6 +226,7 @@ extension LogEntryDocument on Map<String, Object?> {
     DateTime day, {
     Map<String, Object?> fields = const {},
     Iterable<String> clearKeys = const [],
+    HistoryValue? history,
   }) {
     final key = _dayFormat.format(day);
     final stored = this[logEntriesKey];
@@ -171,16 +235,87 @@ extension LogEntryDocument on Map<String, Object?> {
     final index = _dayEntryIndex(entries, day);
     if (index == -1) {
       if (fields.isNotEmpty) {
-        entries.add(<String, Object?>{_dateKey: key, ...fields});
+        final entry = <String, Object?>{_dateKey: key, ...fields};
+        if (history != null) {
+          entry[editHistoryKey] = <Object?>[history.toJson()];
+        }
+        entries.add(entry);
       }
     } else {
       final existing = entries[index] as Map<String, Object?>;
       final updated = <String, Object?>{...existing}
         ..removeWhere((field, _) => clearKeys.contains(field))
         ..addAll(fields);
+      if (history != null) {
+        final last = _lastHistoryValue(updated, history.field);
+        if (last == null || last.value != history.value) {
+          final previous = updated[editHistoryKey];
+          updated[editHistoryKey] = <Object?>[
+            if (previous is List) ...previous,
+            history.toJson(),
+          ];
+        }
+      }
       entries[index] = updated;
     }
 
+    return <String, Object?>{...this, logEntriesKey: entries};
+  }
+
+  /// Every edit recorded on [day], oldest first.
+  List<HistoryValue> editHistoryForDay(DateTime day) {
+    final stored = this[logEntriesKey];
+    if (stored is! List) return const <HistoryValue>[];
+    final index = _dayEntryIndex(stored, day);
+    if (index == -1) return const <HistoryValue>[];
+    final history = (stored[index] as Map<String, Object?>)[editHistoryKey];
+    if (history is! List) return const <HistoryValue>[];
+    return history
+        .whereType<Map<String, Object?>>()
+        .map(HistoryValue.fromJson)
+        .toList();
+  }
+
+  /// The values [field] on [day] has held, oldest first.
+  List<HistoryValue> editHistoryFor(DateTime day, String field) => editHistoryForDay(
+    day,
+  ).where((value) => value.field == field).toList();
+
+  /// Returns a new document with every value cleared from [day]'s entry.
+  ///
+  /// The entry itself stays, holding its edit history, so the removal can
+  /// still be reviewed. Each field that held a value gets a clearing value
+  /// stamped with [at].
+  Map<String, Object?> deleteLogEntry(DateTime day, {DateTime? at}) {
+    final entry = logEntries.forDay(day);
+    if (entry == null) return this;
+
+    final clears = <String>[
+      if (entry.isPeriodDay) periodDayKey,
+      if (entry.flowLevel != null) flowLevelKey,
+      if (entry.symptoms.isNotEmpty) symptomsKey,
+      if (entry.note != null) noteKey,
+      if (entry.tags.isNotEmpty) tagsKey,
+    ];
+    final stamped = <HistoryValue>[
+      for (final field in clears)
+        if (at != null) HistoryValue(field: field, value: null, at: at),
+    ];
+
+    final stored = this[logEntriesKey];
+    final entries = <Object?>[if (stored is List) ...stored];
+    final index = _dayEntryIndex(entries, day);
+    final existing = entries[index] as Map<String, Object?>;
+    final previous = existing[editHistoryKey];
+    final updated = <String, Object?>{_dateKey: _dayFormat.format(day)};
+    if (previous != null) updated[editHistoryKey] = previous;
+    if (stamped.isNotEmpty) {
+      updated[editHistoryKey] = <Object?>[
+        if (previous is List) ...previous,
+        for (final value in stamped) value.toJson(),
+      ];
+    }
+    entries[index] = updated;
     return <String, Object?>{...this, logEntriesKey: entries};
   }
 
@@ -188,20 +323,38 @@ extension LogEntryDocument on Map<String, Object?> {
   ///
   /// Recording a day that is already logged leaves the entry untouched, so a
   /// second tap cannot create a duplicate.
-  Map<String, Object?> withPeriodDay(DateTime day) =>
-      _withDayEntry(day, fields: <String, Object?>{_periodDayKey: true});
+  Map<String, Object?> withPeriodDay(DateTime day, {DateTime? at}) =>
+      _withDayEntry(
+        day,
+        fields: <String, Object?>{periodDayKey: true},
+        history: _stamped(periodDayKey, true, at),
+      );
+
+  /// Returns a new document with [day] no longer marked as a period day.
+  ///
+  /// The previous mark stays in the edit history with its original timestamp.
+  Map<String, Object?> withoutPeriodDay(DateTime day, {DateTime? at}) =>
+      _withDayEntry(
+        day,
+        clearKeys: <String>[periodDayKey],
+        history: _stamped(periodDayKey, null, at),
+      );
 
   /// Returns a new document with [level] recorded as [day]'s flow level.
   ///
   /// Passing null clears the flow level. Every other field on the entry and
   /// all unrelated entries are preserved, so later slices can add their own
   /// data to the same log entry.
-  Map<String, Object?> withFlowLevel(DateTime day, FlowLevel? level) =>
-      _withDayEntry(
-        day,
-        fields: {if (level != null) _flowLevelKey: level.name},
-        clearKeys: <String>[_flowLevelKey],
-      );
+  Map<String, Object?> withFlowLevel(
+    DateTime day,
+    FlowLevel? level, {
+    DateTime? at,
+  }) => _withDayEntry(
+    day,
+    fields: {if (level != null) flowLevelKey: level.name},
+    clearKeys: <String>[flowLevelKey],
+    history: _stamped(flowLevelKey, level?.name, at),
+  );
 
   /// Symptom names the user has defined themselves.
   List<String> get customSymptomNames {
@@ -239,10 +392,13 @@ extension LogEntryDocument on Map<String, Object?> {
 
   /// Returns a new document with [name] toggled on [day]: logged with no
   /// value when absent, removed when already logged.
-  Map<String, Object?> withToggledSymptom(DateTime day, String name) =>
-      symptomsFor(day).any((symptom) => symptom.name == name)
-          ? withoutLoggedSymptom(day, name)
-          : withLoggedSymptom(day, name);
+  Map<String, Object?> withToggledSymptom(
+    DateTime day,
+    String name, {
+    DateTime? at,
+  }) => symptomsFor(day).any((symptom) => symptom.name == name)
+      ? withoutLoggedSymptom(day, name, at: at)
+      : withLoggedSymptom(day, name, at: at);
 
   /// Every day with at least one logged symptom, oldest first.
   List<LogEntry> get symptomDays =>
@@ -272,6 +428,7 @@ extension LogEntryDocument on Map<String, Object?> {
     DateTime day,
     String name, {
     String? value,
+    DateTime? at,
   }) {
     final symptoms = _rawSymptomsFor(day);
     final updated = LoggedSymptom(name: name, value: value).toJson();
@@ -286,14 +443,27 @@ extension LogEntryDocument on Map<String, Object?> {
       if (value == null) merged.remove(_symptomValueKey);
       symptoms[index] = merged;
     }
-    return _withDayEntry(day, fields: <String, Object?>{symptomsKey: symptoms});
+    return _withDayEntry(
+      day,
+      fields: <String, Object?>{symptomsKey: symptoms},
+      history: _stamped(symptomHistoryField(name), value, at),
+    );
   }
 
   /// Returns a new document with [name] no longer logged on [day].
-  Map<String, Object?> withoutLoggedSymptom(DateTime day, String name) {
+  Map<String, Object?> withoutLoggedSymptom(
+    DateTime day,
+    String name, {
+    DateTime? at,
+  }) {
+    final existed = symptomsFor(day).any((symptom) => symptom.name == name);
     final symptoms = _rawSymptomsFor(day)
       ..removeWhere((symptom) => _isSymptomNamed(symptom, name));
-    return _withDayEntry(day, fields: <String, Object?>{symptomsKey: symptoms});
+    return _withDayEntry(
+      day,
+      fields: <String, Object?>{symptomsKey: symptoms},
+      history: existed ? _stamped(symptomHistoryField(name), null, at) : null,
+    );
   }
 
   /// The free-text note saved on [day], if there is one.
@@ -307,12 +477,14 @@ extension LogEntryDocument on Map<String, Object?> {
   ///
   /// Blank notes clear the field instead of storing whitespace. Passing null
   /// clears it too; clearing a day with no entry records nothing.
-  Map<String, Object?> withNote(DateTime day, String? note) {
+  Map<String, Object?> withNote(DateTime day, String? note, {DateTime? at}) {
     final trimmed = note?.trim();
+    final value = trimmed != null && trimmed.isNotEmpty ? trimmed : null;
     return _withDayEntry(
       day,
-      fields: {if (trimmed != null && trimmed.isNotEmpty) noteKey: trimmed},
+      fields: {noteKey: ?value},
       clearKeys: <String>[noteKey],
+      history: _stamped(noteKey, value, at),
     );
   }
 
@@ -358,28 +530,34 @@ extension LogEntryDocument on Map<String, Object?> {
   }
 
   /// Returns a new document with [name] attached to [day].
-  Map<String, Object?> withTag(DateTime day, String name) {
+  Map<String, Object?> withTag(DateTime day, String name, {DateTime? at}) {
     final tags = _rawTagsFor(day);
     if (tags.contains(name)) return this;
     return _withDayEntry(
       day,
       fields: <String, Object?>{tagsKey: <String>[...tags, name]},
+      history: _stamped(tagHistoryField(name), name, at),
     );
   }
 
   /// Returns a new document with [name] no longer attached to [day].
-  Map<String, Object?> withoutTag(DateTime day, String name) {
+  Map<String, Object?> withoutTag(DateTime day, String name, {DateTime? at}) {
+    if (!tagsFor(day).contains(name)) return this;
     final tags = _rawTagsFor(day)..remove(name);
     return _withDayEntry(
       day,
       fields: <String, Object?>{tagsKey: tags},
+      history: _stamped(tagHistoryField(name), null, at),
     );
   }
 
   /// Returns a new document with [name] attached to [day], or removed when it
   /// is already attached.
-  Map<String, Object?> withToggledTag(DateTime day, String name) =>
-      tagsFor(day).contains(name)
-          ? withoutTag(day, name)
-          : withTag(day, name);
+  Map<String, Object?> withToggledTag(
+    DateTime day,
+    String name, {
+    DateTime? at,
+  }) => tagsFor(day).contains(name)
+      ? withoutTag(day, name, at: at)
+      : withTag(day, name, at: at);
 }

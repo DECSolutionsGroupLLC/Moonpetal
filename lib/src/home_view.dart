@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import 'cycles.dart';
 import 'log_entries.dart';
@@ -11,6 +12,9 @@ const String cycleLengthExplanation =
     'start.';
 
 String _daysLabel(int days) => '$days ${days == 1 ? 'day' : 'days'}';
+
+final DateFormat _dayKeyFormat = DateFormat('yyyy-MM-dd');
+final DateFormat _historyTimeFormat = DateFormat('d MMM y, HH:mm');
 
 /// The daily screen: log today in one tap and review periods and period days.
 class HomeView extends StatelessWidget {
@@ -41,6 +45,14 @@ class HomeView extends StatelessWidget {
     required this.onToggleTag,
     required this.onSaveNote,
     required this.onEndPeriod,
+    required this.onRemovePeriodDay,
+    required this.onDeleteEntry,
+    required this.onCorrectFlowLevel,
+    required this.onRemoveSymptom,
+    required this.onRemoveTag,
+    required this.onCorrectTag,
+    required this.onCorrectNote,
+    required this.editHistoryForDay,
   });
 
   final DateTime today;
@@ -111,6 +123,30 @@ class HomeView extends StatelessWidget {
 
   /// Records the day a period ended.
   final void Function(Period period, DateTime end) onEndPeriod;
+
+  /// Removes the period-day mark from [day], retaining it in edit history.
+  final ValueChanged<DateTime> onRemovePeriodDay;
+
+  /// Clears every value on [day], leaving its edit history reviewable.
+  final ValueChanged<DateTime> onDeleteEntry;
+
+  /// Changes or clears the flow level recorded on [day].
+  final void Function(DateTime day, FlowLevel? level) onCorrectFlowLevel;
+
+  /// Removes a logged symptom from [day], retaining it in edit history.
+  final void Function(DateTime day, String name) onRemoveSymptom;
+
+  /// Removes a tag from [day], retaining it in edit history.
+  final void Function(DateTime day, String name) onRemoveTag;
+
+  /// Replaces [oldName] with [newName] on [day], keeping both in history.
+  final void Function(DateTime day, String oldName, String newName) onCorrectTag;
+
+  /// Changes or clears the note recorded on [day].
+  final void Function(DateTime day, String? note) onCorrectNote;
+
+  /// Every edit recorded on [day], oldest first.
+  final List<HistoryValue> Function(DateTime day) editHistoryForDay;
 
   @override
   Widget build(BuildContext context) {
@@ -268,14 +304,16 @@ class HomeView extends StatelessWidget {
                 Text('Period days', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 8),
                 ...periodDays.map(
-                  (entry) => ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(
-                      Icons.local_florist,
-                      color: MoonpetalColors.deepPink,
+                  (entry) => _reviewTile(
+                    icon: Icons.local_florist,
+                    title: formatLongDate(entry.date),
+                    subtitle: 'Period day',
+                    actions: _reviewActions(
+                      context,
+                      day: entry.date,
+                      field: periodDayKey,
+                      onDelete: () => onRemovePeriodDay(entry.date),
                     ),
-                    title: Text(formatLongDate(entry.date)),
-                    subtitle: const Text('Period day'),
                   ),
                 ),
                 if (flowDays.isNotEmpty) ...[
@@ -283,14 +321,20 @@ class HomeView extends StatelessWidget {
                   Text('Flow levels', style: theme.textTheme.titleMedium),
                   const SizedBox(height: 8),
                   ...flowDays.map(
-                    (entry) => ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(
-                        Icons.water_drop,
-                        color: MoonpetalColors.deepPink,
+                    (entry) => _reviewTile(
+                      icon: Icons.water_drop,
+                      title: formatLongDate(entry.date),
+                      subtitle: '${entry.flowLevel!.label} flow',
+                      actions: _reviewActions(
+                        context,
+                        day: entry.date,
+                        field: flowLevelKey,
+                        onEdit: () => _correctFlowLevel(
+                          context,
+                          entry.date,
+                          entry.flowLevel,
+                        ),
                       ),
-                      title: Text(formatLongDate(entry.date)),
-                      subtitle: Text('${entry.flowLevel!.label} flow'),
                     ),
                   ),
                 ],
@@ -300,25 +344,23 @@ class HomeView extends StatelessWidget {
                   const SizedBox(height: 8),
                   ...symptomDays.expand(
                     (entry) => entry.symptoms.map(
-                      (symptom) => ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(
-                          Icons.healing,
-                          color: MoonpetalColors.deepPink,
-                        ),
-                        title: Text(
-                          '${symptom.name}: ${symptom.value ?? 'no severity or value'}',
-                        ),
-                        subtitle: Text(formatLongDate(entry.date)),
-                        trailing: TextButton(
-                          onPressed: () => _setSymptomDetail(
+                      (symptom) => _reviewTile(
+                        icon: Icons.healing,
+                        title:
+                            '${symptom.name}: ${symptom.value ?? 'no severity or value'}',
+                        subtitle: formatLongDate(entry.date),
+                        actions: _reviewActions(
+                          context,
+                          day: entry.date,
+                          field: symptomHistoryField(symptom.name),
+                          editLabel: symptom.value == null
+                              ? 'Add detail'
+                              : 'Edit detail',
+                          onEdit: () => _setSymptomDetail(
                             context,
                             entry.date,
                             symptom.name,
                             symptom.value,
-                          ),
-                          child: Text(
-                            symptom.value == null ? 'Add detail' : 'Edit detail',
                           ),
                         ),
                       ),
@@ -331,14 +373,17 @@ class HomeView extends StatelessWidget {
                   const SizedBox(height: 8),
                   ...tagDays.expand(
                     (entry) => entry.tags.map(
-                      (tag) => ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(
-                          Icons.label,
-                          color: MoonpetalColors.deepPink,
+                      (tag) => _reviewTile(
+                        icon: Icons.label,
+                        title: tag,
+                        subtitle: formatLongDate(entry.date),
+                        actions: _reviewActions(
+                          context,
+                          day: entry.date,
+                          field: tagHistoryField(tag),
+                          onEdit: () => _correctTag(context, entry.date, tag),
+                          onDelete: () => onRemoveTag(entry.date, tag),
                         ),
-                        title: Text(tag),
-                        subtitle: Text(formatLongDate(entry.date)),
                       ),
                     ),
                   ),
@@ -348,14 +393,17 @@ class HomeView extends StatelessWidget {
                   Text('Notes', style: theme.textTheme.titleMedium),
                   const SizedBox(height: 8),
                   ...noteDays.map(
-                    (entry) => ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(
-                        Icons.note,
-                        color: MoonpetalColors.deepPink,
+                    (entry) => _reviewTile(
+                      icon: Icons.note,
+                      title: entry.note ?? '',
+                      subtitle: formatLongDate(entry.date),
+                      actions: _reviewActions(
+                        context,
+                        day: entry.date,
+                        field: noteKey,
+                        onEdit: () =>
+                            _correctNote(context, entry.date, entry.note),
                       ),
-                      title: Text(entry.note ?? ''),
-                      subtitle: Text(formatLongDate(entry.date)),
                     ),
                   ),
                 ],
@@ -427,14 +475,149 @@ class HomeView extends StatelessWidget {
     String name,
     String? current,
   ) async {
-    final value = await showDialog<String>(
+    final result = await showDialog<({String? value, bool delete})>(
       context: context,
-      builder: (context) =>
-          _SymptomDetailDialog(name: name, initialValue: current),
+      builder: (context) => _TextCorrectionDialog(
+        title: '$name detail',
+        label: 'Severity or value (optional)',
+        initialValue: current,
+        fieldKey: const Key('symptomDetailField'),
+        maxLines: 1,
+      ),
     );
-    if (value == null || !context.mounted) return;
-    final trimmed = value.trim();
-    onSetSymptomValue(day, name, trimmed.isEmpty ? null : trimmed);
+    if (result == null || !context.mounted) return;
+    if (result.delete) {
+      onRemoveSymptom(day, name);
+      return;
+    }
+    final value = result.value?.trim();
+    onSetSymptomValue(day, name, value == null || value.isEmpty ? null : value);
+  }
+
+  /// A reviewed value with its correction actions on a line of their own, so
+  /// long notes cannot crowd the buttons off a narrow phone screen.
+  Widget _reviewTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Widget actions,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(icon, color: MoonpetalColors.deepPink),
+          title: Text(title),
+          subtitle: Text(subtitle),
+        ),
+        actions,
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+
+  /// The Edit / Delete / History actions attached to a review row.
+  Widget _reviewActions(
+    BuildContext context, {
+    required DateTime day,
+    required String field,
+    String editLabel = 'Edit',
+    VoidCallback? onEdit,
+    VoidCallback? onDelete,
+  }) {
+    final suffix = '$field-${_dayKeyFormat.format(day)}';
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (onDelete != null)
+          TextButton(
+            key: Key('delete-$suffix'),
+            onPressed: onDelete,
+            child: const Text('Delete'),
+          ),
+        if (onEdit != null)
+          TextButton(
+            key: Key('edit-$suffix'),
+            onPressed: onEdit,
+            child: Text(editLabel),
+          ),
+        TextButton(
+          key: Key('history-$suffix'),
+          onPressed: () => _showHistory(context, day),
+          child: const Text('History'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _correctFlowLevel(
+    BuildContext context,
+    DateTime day,
+    FlowLevel? current,
+  ) async {
+    final result = await showDialog<({FlowLevel? level, bool delete})>(
+      context: context,
+      builder: (context) => _FlowCorrectionDialog(current: current),
+    );
+    if (result == null || !context.mounted) return;
+    onCorrectFlowLevel(day, result.delete ? null : result.level);
+  }
+
+  Future<void> _correctTag(
+    BuildContext context,
+    DateTime day,
+    String current,
+  ) async {
+    final result = await showDialog<({String? value, bool delete})>(
+      context: context,
+      builder: (context) => _TextCorrectionDialog(
+        title: 'Correct tag',
+        label: 'Tag label',
+        initialValue: current,
+        maxLines: 1,
+      ),
+    );
+    if (result == null || !context.mounted) return;
+    if (result.delete) {
+      onRemoveTag(day, current);
+      return;
+    }
+    final value = result.value?.trim();
+    if (value == null || value.isEmpty) return;
+    onCorrectTag(day, current, value);
+  }
+
+  Future<void> _correctNote(
+    BuildContext context,
+    DateTime day,
+    String? current,
+  ) async {
+    final result = await showDialog<({String? value, bool delete})>(
+      context: context,
+      builder: (context) => _TextCorrectionDialog(
+        title: 'Correct note',
+        label: 'Note',
+        initialValue: current,
+      ),
+    );
+    if (result == null || !context.mounted) return;
+    final value = result.value?.trim();
+    onCorrectNote(day, result.delete || value == null || value.isEmpty ? null : value);
+  }
+
+  void _showHistory(BuildContext context, DateTime day) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => _HistoryDialog(
+        day: day,
+        records: editHistoryForDay(day),
+        onDeleteEntry: () {
+          Navigator.pop(context);
+          onDeleteEntry(day);
+        },
+      ),
+    );
   }
 }
 
@@ -522,54 +705,6 @@ class _CycleCard extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _SymptomDetailDialog extends StatefulWidget {
-  const _SymptomDetailDialog({required this.name, this.initialValue});
-
-  final String name;
-  final String? initialValue;
-
-  @override
-  State<_SymptomDetailDialog> createState() => _SymptomDetailDialogState();
-}
-
-class _SymptomDetailDialogState extends State<_SymptomDetailDialog> {
-  late final TextEditingController _controller = TextEditingController(
-    text: widget.initialValue ?? '',
-  );
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text('${widget.name} detail'),
-      content: TextField(
-        key: const Key('symptomDetailField'),
-        controller: _controller,
-        autofocus: true,
-        decoration: const InputDecoration(
-          labelText: 'Severity or value (optional)',
-          border: OutlineInputBorder(),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, _controller.text),
-          child: const Text('Save'),
-        ),
-      ],
     );
   }
 }
@@ -745,4 +880,190 @@ class _FirstRunEmptyState extends StatelessWidget {
       ],
     );
   }
+}
+
+/// A dialog that edits a text value, or removes the field altogether.
+class _TextCorrectionDialog extends StatefulWidget {
+  const _TextCorrectionDialog({
+    required this.title,
+    required this.label,
+    this.initialValue,
+    this.fieldKey = const Key('correctionField'),
+    this.maxLines = 3,
+  });
+
+  final String title;
+  final String label;
+  final String? initialValue;
+  final Key fieldKey;
+  final int maxLines;
+
+  @override
+  State<_TextCorrectionDialog> createState() => _TextCorrectionDialogState();
+}
+
+class _TextCorrectionDialogState extends State<_TextCorrectionDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initialValue ?? '',
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      key: const Key('correctionDialog'),
+      title: Text(widget.title),
+      content: TextField(
+        key: widget.fieldKey,
+        controller: _controller,
+        autofocus: true,
+        maxLines: widget.maxLines,
+        decoration: InputDecoration(
+          labelText: widget.label,
+          border: const OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          key: const Key('deleteCorrection'),
+          onPressed: () =>
+              Navigator.pop(context, (value: null, delete: true)),
+          child: const Text('Delete'),
+        ),
+        FilledButton(
+          key: const Key('saveCorrection'),
+          onPressed: () =>
+              Navigator.pop(context, (value: _controller.text, delete: false)),
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+/// A dialog that changes or clears a previously logged flow level.
+class _FlowCorrectionDialog extends StatelessWidget {
+  const _FlowCorrectionDialog({required this.current});
+
+  final FlowLevel? current;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      key: const Key('correctionDialog'),
+      title: const Text('Correct flow level'),
+      content: Wrap(
+        spacing: 8,
+        children: [
+          for (final level in FlowLevel.values)
+            FilterChip(
+              key: Key('correction-flow-${level.name}'),
+              label: Text(level.label),
+              selected: level == current,
+              onSelected: (_) => Navigator.pop(
+                context,
+                (level: level, delete: false),
+              ),
+            ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          key: const Key('deleteCorrection'),
+          onPressed: () =>
+              Navigator.pop(context, (level: null, delete: true)),
+          child: const Text('Delete'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Shows every saved value on a day, newest last, with its timestamp.
+class _HistoryDialog extends StatelessWidget {
+  const _HistoryDialog({
+    required this.day,
+    required this.records,
+    required this.onDeleteEntry,
+  });
+
+  final DateTime day;
+  final List<HistoryValue> records;
+  final VoidCallback onDeleteEntry;
+
+  @override
+  Widget build(BuildContext context) {
+    final currentByField = <String, HistoryValue>{
+      for (final value in records) value.field: value,
+    };
+    return AlertDialog(
+      key: const Key('historyDialog'),
+      title: const Text('Edit history'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(formatLongDate(day)),
+          const SizedBox(height: 8),
+          for (final value in records.reversed)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                '${_describeHistoryValue(value)} — '
+                '${_historyTimeFormat.format(value.at)}'
+                '${identical(value, currentByField[value.field]) ? ' (current)' : ''}',
+              ),
+            ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          key: const Key('deleteEntryButton'),
+          onPressed: onDeleteEntry,
+          child: const Text('Delete entry'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Plain-language description of one saved value in the history dialog.
+String _describeHistoryValue(HistoryValue value) {
+  final saved = value.value;
+  if (value.field == noteKey) {
+    return saved == null ? 'Note deleted' : 'Note: $saved';
+  }
+  if (value.field == flowLevelKey) {
+    if (saved == null) return 'Flow level cleared';
+    return '${FlowLevel.values.asNameMap()[saved]?.label ?? saved} flow';
+  }
+  if (value.field == periodDayKey) {
+    return saved == true ? 'Marked as period day' : 'Period day removed';
+  }
+  if (value.field.startsWith(symptomHistoryPrefix)) {
+    final name = value.field.substring(symptomHistoryPrefix.length);
+    return saved == null ? '$name removed' : '$name: $saved';
+  }
+  if (value.field.startsWith(tagHistoryPrefix)) {
+    final name = value.field.substring(tagHistoryPrefix.length);
+    return saved == null ? 'Tag $name removed' : 'Tag $name added';
+  }
+  return '$saved';
 }
