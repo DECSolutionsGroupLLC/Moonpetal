@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import 'src/clock.dart';
+import 'src/cycles.dart';
 import 'src/home_view.dart';
 import 'src/log_entries.dart';
+import 'src/periods.dart';
 import 'src/phone_viewport.dart';
 import 'src/storage.dart';
 import 'src/theme.dart';
@@ -35,9 +37,19 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
     setState(() => _document = document);
   }
 
-  Future<void> _logPeriodDay() async {
-    final updated = (_document ?? <String, Object?>{}).withPeriodDay(
-      widget.clock.now(),
+  Future<void> _recordPeriodDay(DateTime day) async {
+    final updated = (_document ?? <String, Object?>{}).withPeriodDay(day);
+    await widget.store.write(updated);
+    if (!mounted) return;
+    setState(() => _document = updated);
+  }
+
+  Future<void> _logPeriodDay() => _recordPeriodDay(widget.clock.now());
+
+  Future<void> _endPeriod(Period period, DateTime end) async {
+    final updated = (_document ?? <String, Object?>{}).withPeriodEnd(
+      period,
+      end,
     );
     await widget.store.write(updated);
     if (!mounted) return;
@@ -59,7 +71,11 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
                 today: widget.clock.now(),
                 hasLogEntries: document.hasLogEntries,
                 periodDays: document.periodDays,
+                periods: document.periods,
+                cycleHistory: document.cycleHistory,
                 onLogPeriodDay: _logPeriodDay,
+                onSetPeriodStart: _recordPeriodDay,
+                onEndPeriod: _endPeriod,
               ),
       ),
     );
