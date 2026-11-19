@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 
+import 'src/backup.dart';
 import 'src/clock.dart';
 import 'src/cycles.dart';
 import 'src/estimate.dart';
 import 'src/fertility.dart';
 import 'src/home_view.dart';
 import 'src/insights.dart';
+import 'src/link_launcher.dart';
 import 'src/log_entries.dart';
+import 'src/native_backup_gateway.dart';
+import 'src/native_link_launcher.dart';
 import 'src/periods.dart';
 import 'src/phases.dart';
 import 'src/phone_viewport.dart';
@@ -22,13 +26,21 @@ class MoonpetalApp extends StatefulWidget {
     AppStore? store,
     ReminderScheduler? reminderScheduler,
     bool? notificationsAvailable,
+    BackupGateway? backupGateway,
+    LinkLauncher? linkLauncher,
   })  : clock = clock ?? const SystemClock(),
         store = store ?? const JsonFileAppStore(),
         reminderScheduler = reminderScheduler ?? const NoOpReminderScheduler(),
-        notificationsAvailable = notificationsAvailable ?? false;
+        notificationsAvailable = notificationsAvailable ?? false,
+        backupGateway = backupGateway ?? const NativeBackupGateway(),
+        linkLauncher = linkLauncher ?? const NativeLinkLauncher();
 
   final Clock clock;
   final AppStore store;
+
+  /// The user-chosen file boundary for export and restore. Tests substitute an
+  /// in-memory gateway so no native picker or filesystem is involved.
+  final BackupGateway backupGateway;
 
   /// The outward boundary for local notifications. Defaults to the no-op
   /// scheduler; [main] supplies the Android implementation only on Android.
@@ -37,6 +49,10 @@ class MoonpetalApp extends StatefulWidget {
   /// Whether this build can deliver local notifications. Drives the plain
   /// statement shown instead of silently dropping reminders on other platforms.
   final bool notificationsAvailable;
+
+  /// The outward boundary for the open-source link. Defaults to handing the
+  /// URL to the platform browser; the app itself never fetches it.
+  final LinkLauncher linkLauncher;
 
   @override
   State<MoonpetalApp> createState() => _MoonpetalAppState();
@@ -192,6 +208,57 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
     ),
   );
 
+  static const String _backupFileName = 'moonpetal-backup.json';
+
+  /// Writes the whole current document to a user-chosen local file.
+  ///
+  /// Returns a status line for the user, or null when the dialog is cancelled.
+  Future<String?> _exportBackup() async {
+    try {
+      final location = await widget.backupGateway.save(
+        _backupFileName,
+        encodeBackup(_document ?? <String, Object?>{}),
+      );
+      if (location == null) return null;
+      return 'Backup saved to $location. Nothing was uploaded or shared.';
+    } on BackupException catch (error) {
+      return 'Export failed: ${error.message}';
+    }
+  }
+
+  /// Replaces the stored document with a validated user-chosen backup.
+  ///
+  /// The file is decoded before the store is touched, so an invalid backup
+  /// leaves the existing data exactly as it was.
+  Future<String?> _restoreBackup() async {
+    late final PickedBackup picked;
+    try {
+      final result = await widget.backupGateway.load();
+      if (result == null) return null;
+      picked = result;
+    } on BackupException catch (error) {
+      return 'Restore failed: ${error.message}';
+    }
+
+    final Map<String, Object?> document;
+    try {
+      document = decodeBackup(picked.contents);
+    } on InvalidBackupException catch (error) {
+      return 'Could not restore ${picked.name}: ${error.message} '
+          'Your existing data was not changed.';
+    }
+
+    try {
+      await widget.store.write(document);
+    } catch (_) {
+      return 'Restore failed: the data could not be saved on this device.';
+    }
+    if (!mounted) return null;
+    setState(() => _document = document);
+    await _syncReminders(document);
+    return 'Restored from ${picked.name}.';
+  }
+
   @override
   Widget build(BuildContext context) {
     final document = _document;
@@ -230,8 +297,11 @@ class _MoonpetalAppState extends State<MoonpetalApp> {
                 fertilityViewEnabled: document.fertilityViewEnabled,
                 fertilityEstimate: fertilityEstimate,
                 onToggleFertilityView: _toggleFertilityView,
+                onExportBackup: _exportBackup,
+                onRestoreBackup: _restoreBackup,
                 reminderSettings: document.reminderSettings,
                 notificationsAvailable: widget.notificationsAvailable,
+                linkLauncher: widget.linkLauncher,
                 onUpdateReminderSettings: _setReminderSettings,
                 insights: patternInsights,
                 todayFlowLevel: document.flowLevelFor(widget.clock.now()),

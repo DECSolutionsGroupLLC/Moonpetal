@@ -25,6 +25,16 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  // The logging button may be scrolled out of view after other controls are
+  // added above it, so bring it into view before tapping.
+  Future<void> tapLogToday(WidgetTester tester) async {
+    final finder = find.text('Log today as a period day');
+    await tester.ensureVisible(finder);
+    await tester.pumpAndSettle();
+    await tester.tap(finder);
+    await tester.pumpAndSettle();
+  }
+
   testWidgets('consecutive logged period days are shown as one open period', (
     tester,
   ) async {
@@ -53,16 +63,13 @@ void main() {
   ) async {
     final store = InMemoryAppStore();
     await pumpApp(tester, store, DateTime(2026, 11, 16, 9));
-    await tester.tap(find.text('Log today as a period day'));
-    await tester.pumpAndSettle();
+    await tapLogToday(tester);
 
     await pumpApp(tester, store, DateTime(2026, 11, 17, 9));
-    await tester.tap(find.text('Log today as a period day'));
-    await tester.pumpAndSettle();
+    await tapLogToday(tester);
 
     await pumpApp(tester, store, DateTime(2026, 11, 18, 9));
-    await tester.tap(find.text('Log today as a period day'));
-    await tester.pumpAndSettle();
+    await tapLogToday(tester);
 
     expect(find.text('Open period'), findsOneWidget);
     expect(find.text('3 days logged'), findsOneWidget);
@@ -97,7 +104,10 @@ void main() {
     final store = InMemoryAppStore();
     await pumpApp(tester, store, DateTime(2026, 11, 10, 9));
 
-    await tester.tap(find.text('Set a specific start date'));
+    final startButton = find.text('Set a specific start date');
+    await tester.ensureVisible(startButton);
+    await tester.pumpAndSettle();
+    await tester.tap(startButton);
     await tester.pumpAndSettle();
     await tester.tap(find.text('OK'));
     await tester.pumpAndSettle();

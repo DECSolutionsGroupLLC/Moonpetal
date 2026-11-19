@@ -18,6 +18,16 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  // Controls added above the logging button shift it down the scroll view, so
+  // bring it into view before tapping rather than assuming a fixed position.
+  Future<void> tapLogToday(WidgetTester tester) async {
+    final finder = find.text('Log today as a period day');
+    await tester.ensureVisible(finder);
+    await tester.pumpAndSettle();
+    await tester.tap(finder);
+    await tester.pumpAndSettle();
+  }
+
   testWidgets(
     'one tap logs today as a period day and shows it in the history list',
     (tester) async {
@@ -26,8 +36,7 @@ void main() {
 
       expect(find.text('Log today as a period day'), findsOneWidget);
 
-      await tester.tap(find.text('Log today as a period day'));
-      await tester.pumpAndSettle();
+      await tapLogToday(tester);
 
       expect(find.text('Wednesday 18 November 2026'), findsOneWidget);
       expect(find.text('Today is logged'), findsOneWidget);
@@ -39,8 +48,7 @@ void main() {
     (tester) async {
       final store = InMemoryAppStore();
       await pumpApp(tester, store);
-      await tester.tap(find.text('Log today as a period day'));
-      await tester.pumpAndSettle();
+      await tapLogToday(tester);
 
       await pumpApp(tester, store);
 
@@ -61,8 +69,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Log today as a period day'));
-      await tester.pumpAndSettle();
+      await tapLogToday(tester);
 
       await tester.pumpWidget(
         MoonpetalApp(
@@ -82,12 +89,10 @@ void main() {
     (tester) async {
       final store = InMemoryAppStore();
       await pumpApp(tester, store, DateTime(2026, 11, 17, 9));
-      await tester.tap(find.text('Log today as a period day'));
-      await tester.pumpAndSettle();
+      await tapLogToday(tester);
 
       await pumpApp(tester, store);
-      await tester.tap(find.text('Log today as a period day'));
-      await tester.pumpAndSettle();
+      await tapLogToday(tester);
 
       final earlier = tester.getCenter(find.text('Tuesday 17 November 2026'));
       final later = tester.getCenter(find.text('Wednesday 18 November 2026'));

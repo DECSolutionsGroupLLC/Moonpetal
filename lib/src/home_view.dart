@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import 'about_view.dart';
+import 'backup_view.dart';
 import 'cycles.dart';
 import 'estimate.dart';
 import 'fertility.dart';
 import 'insights.dart';
 import 'insights_view.dart';
+import 'link_launcher.dart';
 import 'log_entries.dart';
 import 'phases.dart';
 import 'periods.dart';
@@ -45,8 +48,11 @@ class HomeView extends StatelessWidget {
     required this.fertilityViewEnabled,
     required this.fertilityEstimate,
     required this.onToggleFertilityView,
+    required this.onExportBackup,
+    required this.onRestoreBackup,
     required this.reminderSettings,
     required this.notificationsAvailable,
+    required this.linkLauncher,
     required this.onUpdateReminderSettings,
     required this.insights,
     required this.todayFlowLevel,
@@ -105,11 +111,20 @@ class HomeView extends StatelessWidget {
   /// Flips the fertility opt-in, persisting the user's choice.
   final VoidCallback onToggleFertilityView;
 
+  /// Writes a backup to a user-chosen local file; returns a status line.
+  final Future<String?> Function() onExportBackup;
+
+  /// Restores from a user-chosen file; returns a status line.
+  final Future<String?> Function() onRestoreBackup;
+
   /// The stored reminder Settings, configurable on the reminders screen.
   final ReminderSettings reminderSettings;
 
   /// Whether this build can deliver local notifications.
   final bool notificationsAvailable;
+
+  /// Hands the open-source link to an external opener from the About screen.
+  final LinkLauncher linkLauncher;
 
   /// Persists a change to reminder Settings, using the current stored value.
   final ValueChanged<ReminderSettings Function(ReminderSettings)>
@@ -247,6 +262,20 @@ class HomeView extends StatelessWidget {
                       ? 'Reminder settings'
                       : 'Reminder settings (Android-only)',
                 ),
+              ),
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                key: const Key('backupButton'),
+                onPressed: () => _openBackup(context),
+                icon: const Icon(Icons.backup_outlined),
+                label: const Text('Export & restore data'),
+              ),
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                key: const Key('aboutButton'),
+                onPressed: () => _openAbout(context),
+                icon: const Icon(Icons.info_outlined),
+                label: const Text('About'),
               ),
               const SizedBox(height: 16),
               if (nextPeriodEstimate != null) ...[
@@ -528,6 +557,29 @@ class HomeView extends StatelessWidget {
               (period.end == null || !day.isAfter(period.end!)),
         )
         .toList();
+  }
+
+  void _openBackup(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PhoneViewport(
+          child: BackupView(
+            onExport: onExportBackup,
+            onRestore: onRestoreBackup,
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openAbout(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PhoneViewport(
+          child: AboutView(linkLauncher: linkLauncher),
+        ),
+      ),
+    );
   }
 
   void _openReminderSettings(BuildContext context) {
